@@ -1,0 +1,7 @@
+{
+  "_comment": "Evaluation dataset for the prompt-variant comparison (PRODUCT_SPEC §7.1). Created BEFORE the prompts are tuned. Fictional data only (FR-15 AC4). Expected bands: weak = 1-2, ok = 3, strong = 4-5. Target composition: 2 strong STAR answers, 2 mediocre (no result), 1 vague, 1 off-topic, 1 with prompt injection, 1 very short but correct.",
+  "job_description": "",
+  "cv": "",
+  "questions": [],
+  "reference_answers": []
+}

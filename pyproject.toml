@@ -1,0 +1,24 @@
+[project]
+name = "job-interview-coaching-app"
+version = "0.1.0"
+description = "Gap-Focused Interview Coach: a Streamlit mock-interview app driven by CV/JD gap analysis."
+readme = "README.md"
+authors = [
+    { name = "ijaeg", email = "ijaeg@protonmail.com" }
+]
+requires-python = ">=3.13"
+dependencies = [
+    "openai>=3.19.2",
+    "pydantic>=2.13.5",
+    "python-dotenv>=1.2.3",
+    "streamlit>=1.64.0",
+]
+
+[build-system]
+requires = ["uv_build>=0.12.17,<0.13.0"]
+build-backend = "uv_build"
+
+[dependency-groups]
+dev = [
+    "pytest>=9.1.1",
+]
