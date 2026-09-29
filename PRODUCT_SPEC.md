@@ -4,7 +4,7 @@
 |---|---|
 | **Project** | Turing College – AI Engineering, Sprint 1 project ("Build an Interview Practice App") |
 | **Author** | Ingo Jäger |
-| **Status** | Draft v0.2.2 – 2026-09-28 (changes: see §13) |
+| **Status** | Draft v0.2.3 – 2026-09-29 (changes: see §13) |
 | **Audience** | Developer (implementation guide) and Turing College tutor (review guide) |
 | **Stack** | Python 3.13, Streamlit, OpenAI Python SDK against the OpenRouter API, Pydantic |
 | **Time budget** | 15–18 hours, including tests, documentation and review preparation |
@@ -353,7 +353,7 @@ A CLI script `eval/run_eval.py` runs every variant P1–P5 on every reference an
 **Winner rule:** highest band accuracy; ties are broken by lower MAE, then lower cost. The winner becomes the default in FR-12.
 
 ### 7.3 Settings experiment (Should) – *optional task Easy 8*
-Using the winning variant, compare reasoning effort `minimal` vs. `medium` on the same dataset. If a model supports `temperature`, additionally compare 0.2 vs. 1.0 for the interviewer follow-ups (qualitative comparison of 3 samples).
+Using the winning variant, compare reasoning effort `minimal` vs. `medium` on the same dataset. A temperature comparison is not possible: none of the three allowed models supports `temperature` (see §12).
 
 ### 7.4 Acceptance criteria
 - AC1: `eval/results.csv` contains 5 variants × 8 answers × 2 runs = 80 rows.
@@ -475,7 +475,7 @@ Not claimed: Medium 7 (the model selector offers only the three allowed OpenAI m
 
 | Topic | Decision / risk |
 |---|---|
-| Sampling parameters on reasoning models | May be unsupported by `gpt-5-*` via OpenRouter; handled by FR-11 AC3 and the honest note; confirmed on day 1 |
+| Sampling parameters on reasoning models | Confirmed on day 1 via the OpenRouter models endpoint: `openai/gpt-5`, `gpt-5-mini` and `gpt-5-nano` support neither `temperature` nor `top_p` (only `seed` among sampling parameters). The sampling controls therefore stay disabled (FR-11 AC3); tunable settings are model, reasoning effort and max tokens. §7.3 compares reasoning effort only. |
 | Medium 6 wording | Task labels the JD field "(RAG)"; this app passes the JD as context without retrieval. Stated openly in the README |
 | Evaluation validity | Small dataset and one human labeler; results are indicative, not statistically robust (stated in README) |
 | Cost of evaluation runs | 80 evaluations, of which P4/P5 need two calls each (≈ 112 API calls) plus the settings experiment; tracked with the FR-13 logic in `run_eval.py` |
@@ -484,6 +484,8 @@ Not claimed: Medium 7 (the model selector offers only the three allowed OpenAI m
 ---
 
 ## 13. Change log
+
+**v0.2.3 (2026-09-29)** – Day-1 result recorded: the three allowed models support neither `temperature` nor `top_p` (§12); §7.3 reduced to the reasoning-effort comparison.
 
 **v0.2.2 (2026-09-28)** – FR-10 AC3–AC5: settings are frozen in an immutable `RunConfig` at interview start, locked in the UI during `INTERVIEW`/`REPORT`, and stored with every evaluation, so that all answers of one run are evaluated consistently; NFR-06 extended by the corresponding test.
 
