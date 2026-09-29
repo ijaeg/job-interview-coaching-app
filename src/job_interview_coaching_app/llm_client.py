@@ -15,15 +15,18 @@ Related: FR-11, FR-13, NFR-02, NFR-03, NFR-04, NFR-05.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+import os
 from pathlib import Path
 from typing import Any, Iterator, TypeVar
 
 import streamlit as st
+from dotenv import load_dotenv
 from openai import OpenAI
+import openai
+from pydantic import ValidationError
 from pydantic import BaseModel
 
-from job_interview_coaching_app.schemas import RunConfig
+from job_interview_coaching_app.schemas import RunConfig, Usage
 
 #: Directory holding the prompt markdown files, resolved from the repository root.
 PROMPTS_DIR: Path = Path(__file__).resolve().parents[2] / "prompts"
@@ -40,6 +43,9 @@ DEFAULT_MAX_TOKENS: int = 4000
 #: Request timeout in seconds (NFR-02).
 REQUEST_TIMEOUT_SECONDS: float = 60.0
 
+#: Attempts for a structured call; the second one only after invalid JSON (NFR-02).
+MAX_ATTEMPTS: int = 2
+
 TModel = TypeVar("TModel", bound=BaseModel)
 
 
@@ -52,28 +58,14 @@ class LLMError(Exception):
     """
 
 
-@dataclass(frozen=True)
-class Usage:
-    """Token counts of one LLM call, used for the session cost total (FR-13 AC1).
-
-    Attributes:
-        prompt_tokens: Tokens of the request.
-        completion_tokens: Tokens of the response, including reasoning tokens.
-        reasoning_tokens: Reasoning tokens, reported separately when available.
-    """
-
-    prompt_tokens: int
-    completion_tokens: int
-    reasoning_tokens: int
-
-
 @st.cache_resource
 def get_client() -> OpenAI:
-    """Return the shared OpenRouter client, created once per Streamlit session.
+    """Return the shared OpenRouter client, created once and reused afterwards.
 
     Reads ``OPENROUTER_API_KEY`` from the environment or a ``.env`` file and points
-    the OpenAI SDK at the OpenRouter base URL. Cached with ``st.cache_resource`` so
-    that reruns reuse one connection pool.
+    the OpenAI SDK at the OpenRouter base URL, with the 60 s timeout of NFR-02.
+    Cached with ``st.cache_resource``, so every rerun and session reuses one
+    connection pool.
 
     Returns:
         The configured ``OpenAI`` client.
@@ -81,7 +73,25 @@ def get_client() -> OpenAI:
     Raises:
         LLMError: If no API key is configured (FR-15 AC3).
     """
-    raise NotImplementedError
+    # Called here rather than at import time so that ``app.py`` still renders without a
+    # key (NFR-01). A real environment variable keeps precedence over the ``.env`` file.
+    load_dotenv()
+
+    # ``.strip()`` turns the empty ``OPENROUTER_API_KEY=`` line of ``.env.example`` into a
+    # missing key; the SDK would otherwise raise its own error on an empty string.
+    api_key = os.getenv("OPENROUTER_API_KEY", "").strip()
+    if not api_key:
+        # Names the variable, never its value (FR-15 AC3), and no stack trace (NFR-02).
+        raise LLMError(
+            "No OpenRouter API key found. Set OPENROUTER_API_KEY in your environment "
+            "or in a .env file next to app.py, then reload the page."
+        )
+
+    return OpenAI(
+        base_url="https://openrouter.ai/api/v1",
+        api_key=api_key,
+        timeout=REQUEST_TIMEOUT_SECONDS,
+    )
 
 
 def load_prompt(relative_path: str) -> str:
@@ -99,7 +109,11 @@ def load_prompt(relative_path: str) -> str:
     Raises:
         LLMError: If the prompt file does not exist.
     """
-    raise NotImplementedError
+    path = PROMPTS_DIR / relative_path
+    try:
+        return path.read_text(encoding="utf-8")
+    except FileNotFoundError as err:
+        raise LLMError(f"Prompt file not found: prompts/{relative_path}") from err
 
 
 def call_structured(
@@ -129,8 +143,45 @@ def call_structured(
         LLMError: On API errors, timeout, exhausted token budget or invalid JSON
             after the retry.
     """
-    raise NotImplementedError
+    kwargs = {
+        "model": run_config.model,
+        "messages": messages,
+        "response_format": response_model,
+        "max_tokens": run_config.max_tokens,
+        "extra_body": {"reasoning": {"effort": run_config.reasoning_effort}},
+    }
+    if run_config.temperature is not None:
+        kwargs["temperature"] = run_config.temperature
+    if run_config.top_p is not None:
+        kwargs["top_p"] = run_config.top_p
+           
+    for attempt in range(1, MAX_ATTEMPTS + 1):
+        try:
+            response = get_client().chat.completions.parse(**kwargs)
+            break
+        except openai.LengthFinishReasonError as err:
+            raise LLMError("The model ran out of tokens – increase max tokens in the developer settings") from err
+        except openai.ContentFilterFinishReasonError as err:
+            raise LLMError("Response has been filtered by API provider.") from err
+        except ValidationError as err:
+            if attempt == MAX_ATTEMPTS:             # second failure: give up
+                raise LLMError(
+                    "The model returned an answer in an unexpected format. Please try again."
+                ) from err
+        except openai.APITimeoutError as err:
+            raise LLMError("The request timed out after 60 seconds. Please try again.") from err
+        except openai.APIStatusError as err:
+            raise LLMError(f"API responded with status code {err.status_code}") from err
+        except openai.APIConnectionError as err:
+            raise LLMError("API Connection could not be established.") from err
+    
+    message = response.choices[0].message
+    if message.parsed is None:
+        if message.refusal:
+            raise LLMError("The model declined to answer this request.")
+        raise LLMError("The model returned no usable answer. Please try again.")
 
+    return message.parsed, extract_usage(response)
 
 def stream_text(
     messages: list[dict[str, str]],
@@ -178,4 +229,13 @@ def extract_usage(response: Any) -> Usage:
     Returns:
         The token counts, with zeros where the provider reported nothing.
     """
-    raise NotImplementedError
+    usage = response.usage
+    if usage is None:
+        return Usage(prompt_tokens=0, completion_tokens=0, reasoning_tokens=0)
+
+    details = usage.completion_tokens_details
+    return Usage(
+        prompt_tokens=usage.prompt_tokens or 0,
+        completion_tokens=usage.completion_tokens or 0,
+        reasoning_tokens=(details.reasoning_tokens or 0) if details else 0,
+    )

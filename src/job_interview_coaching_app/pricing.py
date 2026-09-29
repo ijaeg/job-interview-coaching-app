@@ -17,7 +17,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-from job_interview_coaching_app.llm_client import Usage
+from job_interview_coaching_app.schemas import Usage
 
 #: Public OpenRouter endpoint listing all models with prices and capabilities.
 MODELS_ENDPOINT: str = "https://openrouter.ai/api/v1/models"

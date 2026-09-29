@@ -126,3 +126,17 @@ class RunConfig:
     temperature: float | None
     top_p: float | None
     eval_variant: str
+
+@dataclass(frozen=True)
+class Usage:
+    """Token counts of one LLM call, used for the session cost total (FR-13 AC1).
+
+    Attributes:
+        prompt_tokens: Tokens of the request.
+        completion_tokens: Tokens of the response, including reasoning tokens.
+        reasoning_tokens: Reasoning tokens, reported separately when available.
+    """
+
+    prompt_tokens: int
+    completion_tokens: int
+    reasoning_tokens: int
