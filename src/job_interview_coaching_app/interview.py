@@ -79,8 +79,11 @@ def expected_question_types(n: int) -> list[QuestionType]:
     Raises:
         ValueError: If ``n`` is outside the allowed range.
     """
-    raise NotImplementedError
-
+    if not MIN_QUESTIONS <= n <= MAX_QUESTIONS:
+        raise ValueError(f"n must be between {MIN_QUESTIONS} and {MAX_QUESTIONS}, got {n}")
+    if n < 4:
+        return ["opener"] + ["gap"] * (n - 1)
+    return ["opener"] + ["gap"] * (n - 2) + ["reverse"]
 
 def plan_interview(jd: str, cv: str, n: int, run_config: RunConfig) -> InterviewPlan:
     """Run the single analysis call that produces gaps and main questions.
