@@ -15,8 +15,8 @@ def test_question_mix_for_three_questions_has_no_reverse() -> None:
     """With n = 3 the mix is opener + gap + gap; ``reverse`` needs n >= 4 (FR-05)."""
     assert expected_question_types(3) == ["opener", "gap", "gap"]
 
-
-def test_question_mix_for_four_or_more_ends_with_reverse() -> None:
+@pytest.mark.parametrize("n", [4, 5, 8])
+def test_question_mix_for_four_or_more_ends_with_reverse(n: int) -> None:
     """With n >= 4 the last question is the ``reverse`` question (FR-05, FR-05 AC2)."""
     types = expected_question_types(n)
     assert len(types) == n
