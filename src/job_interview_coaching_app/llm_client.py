@@ -19,12 +19,11 @@ import os
 from pathlib import Path
 from typing import Any, Iterator, TypeVar
 
+import openai
 import streamlit as st
 from dotenv import load_dotenv
 from openai import OpenAI
-import openai
-from pydantic import ValidationError
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 
 from job_interview_coaching_app.schemas import RunConfig, Usage
 
@@ -182,6 +181,7 @@ def call_structured(
         raise LLMError("The model returned no usable answer. Please try again.")
 
     return message.parsed, extract_usage(response)
+
 
 def stream_text(
     messages: list[dict[str, str]],

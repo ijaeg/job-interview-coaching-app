@@ -8,12 +8,14 @@ LLM calls are mocked.
 from __future__ import annotations
 
 import pytest
+
 from job_interview_coaching_app.interview import expected_question_types
 
 
 def test_question_mix_for_three_questions_has_no_reverse() -> None:
     """With n = 3 the mix is opener + gap + gap; ``reverse`` needs n >= 4 (FR-05)."""
     assert expected_question_types(3) == ["opener", "gap", "gap"]
+
 
 @pytest.mark.parametrize("n", [4, 5, 8])
 def test_question_mix_for_four_or_more_ends_with_reverse(n: int) -> None:
@@ -30,6 +32,7 @@ def test_question_mix_rejects_out_of_range_n(n: int) -> None:
     """n outside 3-8 is rejected (FR-03 AC1)."""
     with pytest.raises(ValueError):
         expected_question_types(n)
+
 
 @pytest.mark.skip(reason="not implemented")
 def test_interviewer_messages_have_expected_roles_in_order() -> None:

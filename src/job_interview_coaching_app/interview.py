@@ -18,14 +18,14 @@ from __future__ import annotations
 from dataclasses import dataclass
 from enum import Enum
 
+from job_interview_coaching_app.guards import wrap_untrusted
+from job_interview_coaching_app.llm_client import LLMError, call_structured, load_prompt
 from job_interview_coaching_app.schemas import (
     AnswerEvaluation,
     InterviewPlan,
     QuestionType,
     RunConfig,
 )
-from job_interview_coaching_app.guards import wrap_untrusted
-from job_interview_coaching_app.llm_client import LLMError, call_structured, load_prompt
 
 
 class State(str, Enum):
@@ -87,6 +87,7 @@ def expected_question_types(n: int) -> list[QuestionType]:
         return ["opener"] + ["gap"] * (n - 1)
     return ["opener"] + ["gap"] * (n - 2) + ["reverse"]
 
+
 def plan_interview(jd: str, cv: str, n: int, run_config: RunConfig) -> InterviewPlan:
     """Run the single analysis call that produces gaps and main questions.
 
@@ -122,6 +123,7 @@ def plan_interview(jd: str, cv: str, n: int, run_config: RunConfig) -> Interview
     _validate_plan(plan, n)
     return plan
 
+
 def _validate_plan(plan: InterviewPlan, n: int) -> None:
     """Check the FR-05 rules the JSON schema alone cannot enforce (FR-05 AC2-AC4).
 
@@ -138,6 +140,7 @@ def _validate_plan(plan: InterviewPlan, n: int) -> None:
     texts = [q.text.strip() for q in plan.questions]
     if len(texts) != len(set(texts)):
         raise LLMError("The generated interview plan contains duplicate questions. Please try again.")
+
 
 def build_interviewer_messages(plan: InterviewPlan, turns: list[Turn]) -> list[dict[str, str]]:
     """Build the multi-turn message list for the interviewer follow-up call.

@@ -127,6 +127,7 @@ class RunConfig:
     top_p: float | None
     eval_variant: str
 
+
 @dataclass(frozen=True)
 class Usage:
     """Token counts of one LLM call, used for the session cost total (FR-13 AC1).

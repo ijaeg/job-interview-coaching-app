@@ -15,7 +15,12 @@ from __future__ import annotations
 
 from enum import Enum
 
-from job_interview_coaching_app.schemas import AnswerEvaluation, Gap, Question, RunConfig
+from job_interview_coaching_app.schemas import (
+    AnswerEvaluation,
+    Gap,
+    Question,
+    RunConfig,
+)
 
 
 class EvalVariant(str, Enum):
