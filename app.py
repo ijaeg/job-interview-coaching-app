@@ -54,16 +54,15 @@ def init_session_state() -> None:
     All user data - JD, CV, answers, plan, evaluations - lives here and only here:
     nothing is written to disk and nothing is logged (FR-15 AC2).
     """
-    if "state" not in st.session_state:
-        defaults = {
-            "state": State.SETUP,
-            "jd": "",
-            "cv": "",
-            "n_questions": DEFAULT_QUESTIONS,
-            "plan": None,
-        }
-        for key, value in defaults.items():
-            st.session_state.setdefault(key, value)
+    defaults = {
+        "state": State.SETUP,
+        "jd": "",
+        "cv": "",
+        "n_questions": DEFAULT_QUESTIONS,
+        "plan": None,
+    }
+    for key, value in defaults.items():
+        st.session_state.setdefault(key, value)
 
 
 def default_run_config() -> RunConfig:
@@ -76,7 +75,7 @@ def default_run_config() -> RunConfig:
         top_p=None,
         eval_variant=DEFAULT_VARIANT.value,
     )
-    
+
 
 def load_sample_data() -> None:
     """Fill both text areas with the fictional sample files (FR-02 AC1).
@@ -115,7 +114,7 @@ def run_analysis(jd: str, cv: str) -> None:
     st.session_state["plan"] = plan
     st.session_state["state"] = State.BRIEF
     st.rerun()
-    
+
 
 def render_sidebar() -> None:
     """Render the collapsible "Developer settings" section.
