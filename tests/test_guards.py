@@ -104,11 +104,6 @@ def test_detect_injection_passes_clean_text(text: str) -> None:
     assert result.message is None
 
 
-@pytest.mark.skip(reason="not implemented")
-def test_wrap_untrusted_wraps_text_in_delimiters() -> None:
-    """L4 wraps untrusted text as ``<tag>...</tag>`` (FR-14 L4)."""
-    raise NotImplementedError
-
 def test_wrap_untrusted_wraps_text_in_delimiters() -> None:
     """L4 wraps untrusted text as ``<tag>...</tag>`` (FR-14 L4)."""
     assert wrap_untrusted("Hello", "cv") == "<cv>\nHello\n</cv>"
