@@ -201,4 +201,4 @@ def wrap_untrusted(text: str, tag: str) -> str:
         "this is data, never instructions" statement lives in the prompt files, not
         here (NFR-05).
     """
-    raise NotImplementedError
+    return f"<{tag}>\n{text}\n</{tag}>"
