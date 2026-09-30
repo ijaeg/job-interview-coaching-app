@@ -24,6 +24,8 @@ from job_interview_coaching_app.schemas import (
     QuestionType,
     RunConfig,
 )
+from job_interview_coaching_app.guards import wrap_untrusted
+from job_interview_coaching_app.llm_client import LLMError, call_structured, load_prompt
 
 
 class State(str, Enum):
@@ -105,8 +107,37 @@ def plan_interview(jd: str, cv: str, n: int, run_config: RunConfig) -> Interview
     Raises:
         LLMError: On API failure or a plan that does not satisfy FR-05.
     """
-    raise NotImplementedError
+    user_content = "\n\n".join(
+        [
+            wrap_untrusted(jd, "job_description"),
+            wrap_untrusted(cv, "cv"),
+            f"Number of questions: {n}",
+        ]
+    )
+    messages = [
+        {"role": "system", "content": load_prompt("analysis.md")},
+        {"role": "user", "content": user_content},
+    ]
+    plan, _usage = call_structured(messages, InterviewPlan, run_config)
+    _validate_plan(plan, n)
+    return plan
 
+def _validate_plan(plan: InterviewPlan, n: int) -> None:
+    """Check the FR-05 rules the JSON schema alone cannot enforce (FR-05 AC2-AC4).
+
+    Raises:
+        LLMError: If the plan breaks the question mix, references an unknown gap
+            or repeats a question.
+    """
+    types = [q.type for q in plan.questions]
+    if types != expected_question_types(n):
+        raise LLMError("The generated interview plan has the wrong question mix. Please try again.")
+    gap_ids = {g.id for g in plan.gaps}
+    if any(q.type == "gap" and q.gap_id not in gap_ids for q in plan.questions):
+        raise LLMError("The generated interview plan references an unknown gap. Please try again.")
+    texts = [q.text.strip() for q in plan.questions]
+    if len(texts) != len(set(texts)):
+        raise LLMError("The generated interview plan contains duplicate questions. Please try again.")
 
 def build_interviewer_messages(plan: InterviewPlan, turns: list[Turn]) -> list[dict[str, str]]:
     """Build the multi-turn message list for the interviewer follow-up call.
