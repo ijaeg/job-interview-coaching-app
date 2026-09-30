@@ -129,8 +129,8 @@ evaluation dataset (no leakage).
 ## Scope discipline
 
 Sprint 1 explicitly excludes LangChain, agents, RAG/vector DB, PDF upload, persistence, and
-deployment (§2.2). Spec §11 defines a cut rule: anything not working by end of day 4 that is not
-a *Must* is dropped and listed under "Ideas for improvement" — except §7 (prompt evaluation) and
-FR-07 (adaptive follow-up), which are never cut.
+deployment (§2.2). Spec §11 defines a cut rule (see §11 for the current cut-rule date): anything
+not working by then that is not a *Must* is dropped and listed under "Ideas for improvement" —
+except §7 (prompt evaluation) and FR-07 (adaptive follow-up), which are never cut.
 
 `README.md` is currently empty and must eventually carry all sections listed in §10.2 (NFR-07).

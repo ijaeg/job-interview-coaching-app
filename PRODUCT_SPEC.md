@@ -4,10 +4,10 @@
 |---|---|
 | **Project** | Turing College – AI Engineering, Sprint 1 project ("Build an Interview Practice App") |
 | **Author** | Ingo Jäger |
-| **Status** | Draft v0.2.3 – 2026-09-29 (changes: see §13) |
+| **Status** | Draft v0.2.4 – 2026-09-30 (changes: see §13) |
 | **Audience** | Developer (implementation guide) and Turing College tutor (review guide) |
 | **Stack** | Python 3.13, Streamlit, OpenAI Python SDK against the OpenRouter API, Pydantic |
-| **Time budget** | 15–18 hours, including tests, documentation and review preparation |
+| **Time budget** | ≈ 50 hours over two weeks, including tests, documentation and review preparation (see §11) |
 
 ---
 
@@ -455,19 +455,23 @@ Not claimed: Medium 7 (the model selector offers only the three allowed OpenAI m
 
 ---
 
-## 11. Plan (15–18 h cap)
+## 11. Plan (as of 2026-09-30)
 
-| Day | Scope | Done when |
+**Milestones:** feature freeze on **Tue 2026-10-06** (midday, end of day at the latest), then *Submit Project* and book the review slot right away; hard deadline **Mon 2026-10-12, morning**, with the review before it. The early freeze leaves a week of buffer because Sprint 1 reviews are not always scheduled promptly. A spontaneous pre-review on Fri 2026-10-02 is requested.
+
+| Date | Scope | Done when |
 |---|---|---|
-| 1 | Book review slot. **30-minute spike:** one call to `gpt-5-mini` with structured output, `reasoning.effort`, `max_tokens` 4,000; check `supported_parameters` of the three models and the `parse` method name. Write sample data and evaluation dataset (§7.1). | Spike works; dataset exists; FR-11 AC3 and §7.3 scope known |
-| 2 | FR-01 … FR-05 with P1 as provisional evaluator | Sample data produces a valid `InterviewPlan` |
-| 3 | FR-06 … FR-09 incl. interviewer follow-up | A full sample interview with follow-ups runs in the browser |
-| 4 | P2–P5, `run_eval.py`, results; settings experiment | `results.csv` complete, winner chosen |
-| 5 | FR-14 guard + security tests (md + xlsx), FR-10/11/13 sidebar | Adversarial cases documented |
-| 6 | Unit tests, README incl. Easy 1 critique, screenshots | All AC of Must requirements checked |
-| 7 | Buffer, review preparation (rehearse the "Design decisions" section) | – |
+| Mon 09-28 – Tue 09-29 ✓ | Spike (structured output, `reasoning.effort`, `supported_parameters`, §12); sample data and evaluation dataset (§7.1); `llm_client`; guard L1/L2 (FR-14) | Spike works; dataset exists; guard tests pass |
+| Wed 09-30 | L4 delimiters; question mix (FR-05); `prompts/analysis.md`; `plan_interview`; SETUP and BRIEF screens (FR-01 … FR-04, FR-15 AC1) | Sample data produces a valid `InterviewPlan` shown as the brief; FR-04 AC3 checked (3 of 3 runs) |
+| Thu 10-01 | FR-06 chat, FR-07 streamed follow-up (`interviewer.md`, message builder), FR-08 with P1, FR-09 report; README draft; questions for the pre-review | A full sample interview with follow-ups runs in the browser |
+| Fri 10-02 | Pre-review (if a slot is granted); P2–P5 prompts; `eval/run_eval.py` | All five variants return a valid `AnswerEvaluation` for one dataset row |
+| Sat 10-03 (≈ 6 h) | Evaluation run (80 rows), `results.csv`, winner (§7.2); reasoning-effort comparison (§7.3) | `results.csv` complete, winner chosen and set as default |
+| Sun 10-04 (≈ 6 h) | Sidebar FR-10 … FR-13 incl. `RunConfig` freeze and cost display; L3 classifier (Should) | Settings locked during the interview; cost total visible |
+| Mon 10-05 | Security tests (md + xlsx); remaining unit tests (NFR-06); README incl. Easy 1 critique and screenshots | All AC of *Must* requirements checked |
+| Tue 10-06 | **Feature freeze:** final check, merge `feature/basic-setup` into `main`, *Submit Project*, book the review slot; rehearse the "Design decisions" section | Submitted; review slot booked |
+| Wed 10-07 – Mon 10-12 | Review; fixes requested by the reviewer only | Review passed before the deadline |
 
-**Cut rule:** anything not working by the end of day 4 that is not a *Must* is dropped and listed under "Ideas for improvement". §7 and FR-07 are *Must* and are never cut.
+**Cut rule:** anything not working by the end of Sat 2026-10-03 that is not a *Must* is dropped and listed under "Ideas for improvement". §7 and FR-07 are *Must* and are never cut. No new features after the freeze.
 
 ---
 
@@ -484,6 +488,8 @@ Not claimed: Medium 7 (the model selector offers only the three allowed OpenAI m
 ---
 
 ## 13. Change log
+
+**v0.2.4 (2026-09-30)** – §11 replaced by a dated plan up to the deadline: feature freeze Tue 2026-10-06, then submission and review booking; optional pre-review Fri 2026-10-02; weekend capacity included; cut-rule date moved to Sat 2026-10-03. Time budget in the header corrected to ≈ 50 hours.
 
 **v0.2.3 (2026-09-29)** – Day-1 result recorded: the three allowed models support neither `temperature` nor `top_p` (§12); §7.3 reduced to the reasoning-effort comparison.
 
