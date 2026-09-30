@@ -15,25 +15,107 @@ Related: FR-01 ... FR-15, NFR-01, NFR-04, NFR-05, NFR-08.
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import streamlit as st
 
-from job_interview_coaching_app.interview import DEFAULT_QUESTIONS, State
+from job_interview_coaching_app.evaluation import DEFAULT_VARIANT
+from job_interview_coaching_app.guards import (
+    MAX_CV_CHARS,
+    MAX_JD_CHARS,
+    MIN_INPUT_CHARS,
+    check_length,
+    detect_injection,
+)
+from job_interview_coaching_app.interview import (
+    DEFAULT_QUESTIONS,
+    MAX_QUESTIONS,
+    MIN_QUESTIONS,
+    State,
+    plan_interview,
+)
+from job_interview_coaching_app.llm_client import DEFAULT_MAX_TOKENS, DEFAULT_MODEL, LLMError
+from job_interview_coaching_app.schemas import RunConfig
 
 PAGE_TITLE = "Gap-Focused Interview Coach"
 
+#: Fictional sample data behind the "Load sample data" button (FR-02).
+SAMPLES_DIR = Path(__file__).resolve().parent / "data" / "samples"
+
+#: Privacy notice shown above the inputs, verbatim (FR-15 AC1).
+PRIVACY_NOTICE = (
+    "Your texts are sent to an LLM provider via OpenRouter for processing. "
+    "They are not stored by this app."
+)
 
 def init_session_state() -> None:
     """Create the session-state keys on the first run.
 
     All user data - JD, CV, answers, plan, evaluations - lives here and only here:
     nothing is written to disk and nothing is logged (FR-15 AC2).
-
-    TODO: initialise state, jd, cv, n_questions, plan, turns, evaluations,
-    run_config and the usage totals.
     """
     if "state" not in st.session_state:
-        st.session_state["state"] = State.SETUP
+        defaults = {
+            "state": State.SETUP,
+            "jd": "",
+            "cv": "",
+            "n_questions": DEFAULT_QUESTIONS,
+            "plan": None,
+        }
+        for key, value in defaults.items():
+            st.session_state.setdefault(key, value)
 
+
+def default_run_config() -> RunConfig:
+    """Provisional settings until the developer sidebar exists (FR-10 to FR-12 follow later)."""
+    return RunConfig(
+        model=DEFAULT_MODEL,
+        reasoning_effort="low",
+        max_tokens=DEFAULT_MAX_TOKENS,
+        temperature=None,
+        top_p=None,
+        eval_variant=DEFAULT_VARIANT.value,
+    )
+    
+
+def load_sample_data() -> None:
+    """Fill both text areas with the fictional sample files (FR-02 AC1).
+
+    Runs as an ``on_click`` callback, i.e. before the text areas are drawn again;
+    setting a widget's value after the widget exists raises a StreamlitAPIException.
+    """
+    st.session_state["jd"] = (SAMPLES_DIR / "sample_job_description.md").read_text(encoding="utf-8")
+    st.session_state["cv"] = (SAMPLES_DIR / "sample_cv.md").read_text(encoding="utf-8")
+
+
+def start_over() -> None:
+    """Clear all session data and return to SETUP (§3)."""
+    for key in list(st.session_state.keys()):
+        del st.session_state[key]
+
+
+def go_to(state: State) -> None:
+    """Switch the state machine to ``state`` (used as a button callback)."""
+    st.session_state["state"] = state
+
+
+def run_analysis(jd: str, cv: str) -> None:
+    """Run guard L1/L2, then the analysis call, then switch to BRIEF (FR-01, FR-04, FR-05, FR-14)."""
+    for text, limit, label in ((jd, MAX_JD_CHARS, "Job description"), (cv, MAX_CV_CHARS, "Your CV")):
+        for result in (check_length(text, limit, label), detect_injection(text)):
+            if not result.ok:
+                st.error(result.message)
+                return
+    try:
+        with st.spinner("Analysing your CV against the job description ..."):
+            plan = plan_interview(jd, cv, st.session_state["n_questions"], default_run_config())
+    except LLMError as err:
+        st.error(str(err))
+        return
+    st.session_state["plan"] = plan
+    st.session_state["state"] = State.BRIEF
+    st.rerun()
+    
 
 def render_sidebar() -> None:
     """Render the collapsible "Developer settings" section.
@@ -76,11 +158,15 @@ def render_setup() -> None:
     English-language note (FR-03), and the privacy notice (FR-15 AC1). L2 injection
     heuristics and the optional L3 classifier run before the analysis
     (FR-14 AC1, AC2).
-
-    TODO: implement the inputs and the transition to BRIEF.
     """
-    st.info("TODO - SETUP: FR-01 inputs, FR-02 sample data, FR-03 slider, FR-14 guard, FR-15 notice.")
-
+    st.info(PRIVACY_NOTICE)
+    st.button("Load sample data", on_click=load_sample_data)
+    jd = st.text_area("Job description", key="jd", height=250)
+    cv = st.text_area("Your CV", key="cv", height=250)
+    st.slider("Number of questions", MIN_QUESTIONS, MAX_QUESTIONS, key="n_questions")
+    too_short = len(jd.strip()) < MIN_INPUT_CHARS or len(cv.strip()) < MIN_INPUT_CHARS
+    if st.button("Analyse", type="primary", disabled=too_short):
+        run_analysis(jd, cv)
 
 def render_brief() -> None:
     """BRIEF: show the preparation brief produced by the analysis call.
@@ -89,11 +175,20 @@ def render_brief() -> None:
     requirement each relates to (FR-04 AC1, AC2), plus the planned main questions
     (FR-05). "Start interview" freezes the settings and moves to ``INTERVIEW``
     (FR-10 AC3).
-
-    TODO: render the InterviewPlan and the transition to INTERVIEW.
     """
-    st.info("TODO - BRIEF: FR-04 gap analysis, FR-05 planned questions, FR-10 AC3 config freeze.")
-
+    plan = st.session_state["plan"]
+    st.subheader("Your preparation brief")
+    st.write(plan.role_summary)
+    st.markdown("**Strengths**")
+    for strength in plan.strengths:
+        st.markdown(f"- {strength}")
+    st.markdown("**Gaps a recruiter is likely to ask about**")
+    for gap in plan.gaps:
+        st.markdown(f"- **{gap.severity.upper()}**: {gap.description}  \n  _Requirement: {gap.jd_requirement}_")
+    st.caption(f"Your interview has {len(plan.questions)} questions.")
+    left, right = st.columns(2)
+    left.button("Start interview", type="primary", on_click=go_to, args=(State.INTERVIEW,))
+    right.button("Start over", on_click=start_over)
 
 def render_interview() -> None:
     """INTERVIEW: run the mock interview as a chat.
