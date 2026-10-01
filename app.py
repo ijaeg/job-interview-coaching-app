@@ -15,12 +15,14 @@ Related: FR-01 ... FR-15, NFR-01, NFR-04, NFR-05, NFR-08.
 
 from __future__ import annotations
 
+from dataclasses import replace
 from pathlib import Path
 
 import streamlit as st
 
-from job_interview_coaching_app.evaluation import DEFAULT_VARIANT
+from job_interview_coaching_app.evaluation import DEFAULT_VARIANT, evaluate_answer
 from job_interview_coaching_app.guards import (
+    MAX_ANSWER_CHARS,
     MAX_CV_CHARS,
     MAX_JD_CHARS,
     MIN_INPUT_CHARS,
@@ -32,6 +34,10 @@ from job_interview_coaching_app.interview import (
     MAX_QUESTIONS,
     MIN_QUESTIONS,
     State,
+    Turn,
+    TurnResult,
+    build_interviewer_messages,
+    generate_followup,
     plan_interview,
 )
 from job_interview_coaching_app.llm_client import (
@@ -39,7 +45,7 @@ from job_interview_coaching_app.llm_client import (
     DEFAULT_MODEL,
     LLMError,
 )
-from job_interview_coaching_app.schemas import RunConfig
+from job_interview_coaching_app.schemas import Question, RunConfig
 
 PAGE_TITLE = "Gap-Focused Interview Coach"
 
@@ -65,6 +71,10 @@ def init_session_state() -> None:
         "cv": "",
         "n_questions": DEFAULT_QUESTIONS,
         "plan": None,
+        "run_config": None,
+        "q_index": 0,
+        "pending": None,
+        "results": [],
     }
     for key, value in defaults.items():
         st.session_state.setdefault(key, value)
@@ -147,10 +157,14 @@ def freeze_run_config() -> None:
     LLM call reads its settings only from this frozen dataclass in
     ``st.session_state``, never from the widgets (FR-10 AC3), and each stored
     ``AnswerEvaluation`` keeps the config it was produced with (FR-10 AC5).
-
-    TODO: build the RunConfig from the widget values and store it.
     """
-    raise NotImplementedError
+    st.session_state["run_config"] = default_run_config()
+
+
+def start_interview() -> None:
+    """BRIEF -> INTERVIEW: freeze the settings first, then switch state (FR-10 AC3)."""
+    freeze_run_config()
+    st.session_state["state"] = State.INTERVIEW
 
 
 def render_setup() -> None:
@@ -192,7 +206,7 @@ def render_brief() -> None:
         st.markdown(f"- **{gap.severity.upper()}**: {gap.description}  \n  _Requirement: {gap.jd_requirement}_")
     st.caption(f"Your interview has {len(plan.questions)} questions.")
     left, right = st.columns(2)
-    left.button("Start interview", type="primary", on_click=go_to, args=(State.INTERVIEW,))
+    left.button("Start interview", type="primary", on_click=start_interview)
     right.button("Start over", on_click=start_over)
 
 
@@ -206,10 +220,103 @@ def render_interview() -> None:
     streams exactly one follow-up (FR-07); ``opener`` and ``reverse`` get none
     (FR-07 AC4). Each main question is evaluated before the next appears, hidden
     until the report (FR-08 AC1).
-
-    TODO: implement the chat loop and the transition to REPORT.
     """
-    st.info("TODO - INTERVIEW: FR-06 chat, FR-07 streamed follow-up, FR-08 hidden evaluation.")
+    plan = st.session_state["plan"]
+    q_index = st.session_state["q_index"]
+    pending = st.session_state["pending"]
+    question = plan.questions[q_index]
+
+    st.progress(q_index / len(plan.questions), text=f"Question {q_index + 1} of {len(plan.questions)}")
+    st.caption("Feedback will be shown at the end.")
+    st.button(
+        "Finish interview",
+        on_click=go_to,
+        args=(State.REPORT,),
+        disabled=not st.session_state["results"] or pending is not None,
+    )
+    notice = st.session_state.pop("notice", None)
+    if notice:
+        st.warning(notice)
+
+    for result in st.session_state["results"]:
+        render_turn(result.turn)
+    with st.chat_message("assistant"):
+        st.write(question.text)
+    if pending is not None:
+        with st.chat_message("user"):
+            st.write(pending.answer)
+        with st.chat_message("assistant"):
+            st.write(pending.followup)
+
+    answer = st.chat_input("Your answer")
+    if answer is not None:
+        handle_answer(answer, question)
+
+
+def render_turn(turn: Turn) -> None:
+    """Show one answered main question and its optional follow-up (FR-06 AC1)."""
+    with st.chat_message("assistant"):
+        st.write(turn.question_text)
+    with st.chat_message("user"):
+        st.write(turn.answer)
+    if turn.followup is not None:
+        with st.chat_message("assistant"):
+            st.write(turn.followup)
+        with st.chat_message("user"):
+            st.write(turn.followup_answer)
+
+
+def handle_answer(answer: str, question: Question) -> None:
+    """Guard the answer, then ask the follow-up or finish the question (FR-06 AC3, FR-07 AC5)."""
+    for result in (check_length(answer, MAX_ANSWER_CHARS, "Your answer"), detect_injection(answer)):
+        if not result.ok:
+            st.error(result.message)
+            return
+    pending = st.session_state["pending"]
+    if pending is not None:
+        finish_turn(replace(pending, followup_answer=answer), question)
+    elif question.type == "gap":
+        ask_followup(Turn(question.id, question.text, answer), question)
+    else:
+        finish_turn(Turn(question.id, question.text, answer), question)
+
+
+def ask_followup(turn: Turn, question: Question) -> None:
+    """Stream exactly one follow-up after a ``gap`` answer (FR-07 AC1-AC4)."""
+    history = [result.turn for result in st.session_state["results"]]
+    messages = build_interviewer_messages(st.session_state["plan"], [*history, turn])
+    with st.chat_message("user"):
+        st.write(turn.answer)
+    try:
+        with st.chat_message("assistant"):
+            followup = generate_followup(messages, st.session_state["run_config"])
+    except LLMError as err:
+        st.session_state["notice"] = f"{err} The interview continues without a follow-up."
+        finish_turn(turn, question)
+        return
+    st.session_state["pending"] = replace(turn, followup=followup)
+    st.rerun()
+
+
+def finish_turn(turn: Turn, question: Question) -> None:
+    """Evaluate the finished main question, store it and move on (FR-08 AC1)."""
+    plan = st.session_state["plan"]
+    run_config = st.session_state["run_config"]
+    gap = next((g for g in plan.gaps if g.id == question.gap_id), None)
+    try:
+        with st.spinner("Saving your answer - feedback follows at the end ..."):
+            evaluation = evaluate_answer(
+                question, turn.answer, turn.followup, turn.followup_answer, run_config, gap
+            )
+    except LLMError as err:
+        evaluation = None
+        st.session_state["notice"] = f"{err} This answer will not be scored."
+    st.session_state["results"].append(TurnResult(turn, evaluation, run_config))
+    st.session_state["pending"] = None
+    st.session_state["q_index"] += 1
+    if st.session_state["q_index"] >= len(plan.questions):
+        st.session_state["state"] = State.REPORT
+    st.rerun()
 
 
 def render_report() -> None:
