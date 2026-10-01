@@ -36,6 +36,7 @@ from job_interview_coaching_app.interview import (
     State,
     Turn,
     TurnResult,
+    aggregate_scores,
     build_interviewer_messages,
     generate_followup,
     plan_interview,
@@ -45,7 +46,7 @@ from job_interview_coaching_app.llm_client import (
     DEFAULT_MODEL,
     LLMError,
 )
-from job_interview_coaching_app.schemas import Question, RunConfig
+from job_interview_coaching_app.schemas import InterviewPlan, Question, RunConfig
 
 PAGE_TITLE = "Gap-Focused Interview Coach"
 
@@ -328,10 +329,61 @@ def render_report() -> None:
     questions that targeted them (FR-09 AC3), and which variant and model produced
     the evaluations (FR-09 AC4, FR-10 AC5). "Start over" returns to ``SETUP`` and
     clears all data (§3).
-
-    TODO: render the aggregation and the per-question details.
     """
-    st.info("TODO - REPORT: FR-09 scores and details, FR-10 AC5 RunConfig provenance.")
+    plan = st.session_state["plan"]
+    results = st.session_state["results"]
+    scored = [result.evaluation for result in results if result.evaluation is not None]
+    st.subheader("Your interview report")
+    if scored:
+        st.metric("Overall score", f"{aggregate_scores(scored):.1f} / 5")
+        run_config = results[0].run_config
+        st.caption(f"Evaluated with variant {run_config.eval_variant} and model {run_config.model}.")
+    else:
+        st.warning("None of your answers could be scored.")
+    render_gap_scores(plan, results)
+    for result in results:
+        render_result(result)
+    st.button("Start over", type="primary", on_click=start_over)
+
+
+def render_gap_scores(plan: InterviewPlan, results: list[TurnResult]) -> None:
+    """List each gap next to the scores of the questions that targeted it (FR-09 AC3)."""
+    gap_of_question = {question.id: question.gap_id for question in plan.questions}
+    st.markdown("**Your gaps and how you handled them**")
+    for gap in plan.gaps:
+        scores = [
+            str(result.evaluation.score)
+            for result in results
+            if result.evaluation is not None and gap_of_question[result.turn.question_id] == gap.id
+        ]
+        handled = f"score {', '.join(scores)} / 5" if scores else "not asked"
+        st.markdown(f"- **{gap.severity.upper()}**: {gap.description} - {handled}")
+
+
+def render_result(result: TurnResult) -> None:
+    """Show one main question with answers and evaluation (FR-09 AC2)."""
+    turn, evaluation = result.turn, result.evaluation
+    st.divider()
+    st.markdown(f"**{turn.question_text}**")
+    st.markdown(f"_Your answer:_ {turn.answer}")
+    if turn.followup is not None:
+        st.markdown(f"**Follow-up:** {turn.followup}")
+        st.markdown(f"_Your answer:_ {turn.followup_answer}")
+    if evaluation is None:
+        st.info("This answer could not be scored.")
+        return
+    off_topic = "" if evaluation.relevant else " (off-topic)"
+    st.markdown(f"**Score: {evaluation.score} / 5**{off_topic}")
+    star = evaluation.star
+    if any(element is not None for element in (star.situation, star.task, star.action, star.result)):
+        st.markdown(
+            f"STAR - Situation: {star.situation or '-'} · Task: {star.task or '-'} · "
+            f"Action: {star.action or '-'} · Result: {star.result or '-'}"
+        )
+    st.markdown("**Strengths**\n\n" + "\n".join(f"- {item}" for item in evaluation.strengths))
+    st.markdown("**Improvements**\n\n" + "\n".join(f"- {item}" for item in evaluation.improvements))
+    with st.expander("Improved example answer"):
+        st.write(evaluation.improved_answer)
 
 
 #: State machine dispatch table (§3).
