@@ -4,7 +4,7 @@
 |---|---|
 | **Project** | Turing College – AI Engineering, Sprint 1 project ("Build an Interview Practice App") |
 | **Author** | Ingo Jäger |
-| **Status** | Draft v0.2.4 – 2026-09-30 (changes: see §13) |
+| **Status** | Draft v0.2.5 – 2026-10-01 (changes: see §13) |
 | **Audience** | Developer (implementation guide) and Turing College tutor (review guide) |
 | **Stack** | Python 3.13, Streamlit, OpenAI Python SDK against the OpenRouter API, Pydantic |
 | **Time budget** | ≈ 50 hours over two weeks, including tests, documentation and review preparation (see §11) |
@@ -451,7 +451,7 @@ job-interview-coaching-app/
 
 Not claimed: Medium 7 (the model selector offers only the three allowed OpenAI models, not a choice between providers).
 
-**README sections required (NFR-07):** purpose · screenshots · setup · usage · research and product idea · architecture · design decisions (the 5 most important choices and why) · prompt comparison results · settings experiment · security tests summary · ChatGPT critique (Easy 1) · known limitations · ideas for improvement · traceability table · note on tooling (developed in IntelliJ IDEA instead of VS Code/Cursor, with the reason).
+**README sections required (NFR-07):** purpose · screenshots · setup · usage · research and product idea · architecture · design decisions (the 5 most important choices and why) · prompt comparison results · settings experiment · security tests summary · ChatGPT critique (Easy 1) · known limitations · ideas for improvement · traceability table · note on tooling (editor used – VS Code, as recommended by Turing College – and how AI assistance was used, with the author's own share).
 
 ---
 
@@ -488,6 +488,8 @@ Not claimed: Medium 7 (the model selector offers only the three allowed OpenAI m
 ---
 
 ## 13. Change log
+
+**v0.2.5 (2026-10-01)** – §10.2: README section "note on tooling" corrected – the project is developed in VS Code as recommended by Turing College (the earlier reference to IntelliJ IDEA was wrong); the section now also covers how AI assistance was used.
 
 **v0.2.4 (2026-09-30)** – §11 replaced by a dated plan up to the deadline: feature freeze Tue 2026-10-06, then submission and review booking; optional pre-review Fri 2026-10-02; weekend capacity included; cut-rule date moved to Sat 2026-10-03. Time budget in the header corrected to ≈ 50 hours.
 
