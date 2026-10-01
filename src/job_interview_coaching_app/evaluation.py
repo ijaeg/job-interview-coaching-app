@@ -15,6 +15,8 @@ from __future__ import annotations
 
 from enum import Enum
 
+from job_interview_coaching_app.guards import wrap_untrusted
+from job_interview_coaching_app.llm_client import LLMError, call_structured, load_prompt
 from job_interview_coaching_app.schemas import (
     AnswerEvaluation,
     Gap,
@@ -75,7 +77,15 @@ def evaluate_answer(
     Raises:
         LLMError: On API failure or invalid JSON after the retry (NFR-02).
     """
-    raise NotImplementedError
+    variant = EvalVariant(run_config.eval_variant)
+    user_content = build_evaluation_user_message(question, answer, followup, followup_answer, gap)
+    if variant in TWO_STEP_VARIANTS:
+        evaluation = evaluate_two_step(variant, user_content, run_config)
+    else:
+        evaluation = evaluate_one_step(variant, user_content, run_config)
+    if not 1 <= evaluation.score <= 5:
+        raise LLMError(f"The evaluation returned an invalid score ({evaluation.score}).")
+    return evaluation
 
 
 def evaluate_one_step(
@@ -99,7 +109,12 @@ def evaluate_one_step(
     Raises:
         LLMError: On API failure or invalid JSON after the retry.
     """
-    raise NotImplementedError
+    messages = [
+        {"role": "system", "content": load_prompt(f"evaluation/{variant.value}.md")},
+        {"role": "user", "content": user_content},
+    ]
+    evaluation, _usage = call_structured(messages, AnswerEvaluation, run_config)
+    return evaluation
 
 
 def evaluate_two_step(
@@ -151,4 +166,15 @@ def build_evaluation_user_message(
     Returns:
         The user-message content.
     """
-    raise NotImplementedError
+    parts = [f"Question type: {question.type}"]
+    if gap is not None:
+        parts.append(
+            f"Targeted gap ({gap.severity}): {gap.description} "
+            f"(JD requirement: {gap.jd_requirement})"
+        )
+    parts.append(wrap_untrusted(question.text, "question"))
+    parts.append(wrap_untrusted(answer, "answer"))
+    if followup is not None and followup_answer is not None:
+        parts.append(wrap_untrusted(followup, "question"))
+        parts.append(wrap_untrusted(followup_answer, "answer"))
+    return "\n\n".join(parts)

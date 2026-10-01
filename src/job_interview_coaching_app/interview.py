@@ -18,8 +18,15 @@ from __future__ import annotations
 from dataclasses import dataclass
 from enum import Enum
 
+import streamlit as st
+
 from job_interview_coaching_app.guards import wrap_untrusted
-from job_interview_coaching_app.llm_client import LLMError, call_structured, load_prompt
+from job_interview_coaching_app.llm_client import (
+    LLMError,
+    call_structured,
+    load_prompt,
+    stream_text,
+)
 from job_interview_coaching_app.schemas import (
     AnswerEvaluation,
     InterviewPlan,
@@ -63,6 +70,21 @@ class Turn:
     answer: str
     followup: str | None = None
     followup_answer: str | None = None
+
+
+@dataclass(frozen=True)
+class TurnResult:
+    """One answered main question with its hidden evaluation (FR-08 AC1, FR-10 AC5).
+
+    Attributes:
+        turn: The question and the candidate's answers.
+        evaluation: The judge's verdict, or ``None`` if the evaluation call failed.
+        run_config: The frozen settings the evaluation was produced with.
+    """
+
+    turn: Turn
+    evaluation: AnswerEvaluation | None
+    run_config: RunConfig
 
 
 def expected_question_types(n: int) -> list[QuestionType]:
@@ -160,7 +182,22 @@ def build_interviewer_messages(plan: InterviewPlan, turns: list[Turn]) -> list[d
     Returns:
         Messages ready for ``llm_client.stream_text``.
     """
-    raise NotImplementedError
+    gap_lines = "\n".join(f"- {gap.id} ({gap.severity}): {gap.description}" for gap in plan.gaps)
+    system_content = (
+        f"{load_prompt('interviewer.md')}\n\n"
+        f"Role summary: {plan.role_summary}\n\n"
+        f"Gaps:\n{gap_lines}"
+    )
+    messages = [{"role": "system", "content": system_content}]
+    for turn in turns:
+        messages.append({"role": "assistant", "content": turn.question_text})
+        messages.append({"role": "user", "content": wrap_untrusted(turn.answer, "answer")})
+        if turn.followup is not None and turn.followup_answer is not None:
+            messages.append({"role": "assistant", "content": turn.followup})
+            messages.append(
+                {"role": "user", "content": wrap_untrusted(turn.followup_answer, "answer")}
+            )
+    return messages
 
 
 def generate_followup(messages: list[dict[str, str]], run_config: RunConfig) -> str:
@@ -179,7 +216,8 @@ def generate_followup(messages: list[dict[str, str]], run_config: RunConfig) -> 
     Raises:
         LLMError: On API failure or timeout (NFR-02).
     """
-    raise NotImplementedError
+    followup = st.write_stream(stream_text(messages, run_config))
+    return str(followup).strip()
 
 
 def aggregate_scores(evaluations: list[AnswerEvaluation]) -> float:
@@ -198,4 +236,6 @@ def aggregate_scores(evaluations: list[AnswerEvaluation]) -> float:
     Raises:
         ValueError: If ``evaluations`` is empty.
     """
-    raise NotImplementedError
+    if not evaluations:
+        raise ValueError("At least one evaluation is needed to compute an overall score.")
+    return sum(evaluation.score for evaluation in evaluations) / len(evaluations)

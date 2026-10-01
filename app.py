@@ -34,7 +34,11 @@ from job_interview_coaching_app.interview import (
     State,
     plan_interview,
 )
-from job_interview_coaching_app.llm_client import DEFAULT_MAX_TOKENS, DEFAULT_MODEL, LLMError
+from job_interview_coaching_app.llm_client import (
+    DEFAULT_MAX_TOKENS,
+    DEFAULT_MODEL,
+    LLMError,
+)
 from job_interview_coaching_app.schemas import RunConfig
 
 PAGE_TITLE = "Gap-Focused Interview Coach"
@@ -47,6 +51,7 @@ PRIVACY_NOTICE = (
     "Your texts are sent to an LLM provider via OpenRouter for processing. "
     "They are not stored by this app."
 )
+
 
 def init_session_state() -> None:
     """Create the session-state keys on the first run.
@@ -167,6 +172,7 @@ def render_setup() -> None:
     if st.button("Analyse", type="primary", disabled=too_short):
         run_analysis(jd, cv)
 
+
 def render_brief() -> None:
     """BRIEF: show the preparation brief produced by the analysis call.
 
@@ -188,6 +194,7 @@ def render_brief() -> None:
     left, right = st.columns(2)
     left.button("Start interview", type="primary", on_click=go_to, args=(State.INTERVIEW,))
     right.button("Start over", on_click=start_over)
+
 
 def render_interview() -> None:
     """INTERVIEW: run the mock interview as a chat.

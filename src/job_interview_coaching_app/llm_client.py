@@ -153,7 +153,7 @@ def call_structured(
         kwargs["temperature"] = run_config.temperature
     if run_config.top_p is not None:
         kwargs["top_p"] = run_config.top_p
-           
+
     for attempt in range(1, MAX_ATTEMPTS + 1):
         try:
             response = get_client().chat.completions.parse(**kwargs)
@@ -173,7 +173,7 @@ def call_structured(
             raise LLMError(f"API responded with status code {err.status_code}") from err
         except openai.APIConnectionError as err:
             raise LLMError("API Connection could not be established.") from err
-    
+
     message = response.choices[0].message
     if message.parsed is None:
         if message.refusal:
@@ -203,7 +203,38 @@ def stream_text(
     Raises:
         LLMError: On API errors or timeout (NFR-02).
     """
-    raise NotImplementedError
+    kwargs = {
+        "model": run_config.model,
+        "messages": messages,
+        "max_tokens": run_config.max_tokens,
+        "stream": True,
+        "extra_body": {"reasoning": {"effort": run_config.reasoning_effort}},
+    }
+    if run_config.temperature is not None:
+        kwargs["temperature"] = run_config.temperature
+    if run_config.top_p is not None:
+        kwargs["top_p"] = run_config.top_p
+
+    received_text = False
+    try:
+        for chunk in get_client().chat.completions.create(**kwargs):
+            # Chunks without choices (e.g. a final usage chunk) and reasoning-only
+            # chunks carry no visible text.
+            if not chunk.choices:
+                continue
+            text = chunk.choices[0].delta.content
+            if text:
+                received_text = True
+                yield text
+    except openai.APITimeoutError as err:
+        raise LLMError("The request timed out after 60 seconds. Please try again.") from err
+    except openai.APIStatusError as err:
+        raise LLMError(f"API responded with status code {err.status_code}") from err
+    except openai.APIConnectionError as err:
+        raise LLMError("API Connection could not be established.") from err
+    if not received_text:
+        # NFR-03: reasoning tokens used up the whole budget before any text arrived.
+        raise LLMError("The interviewer returned no text - increase max tokens in the developer settings.")
 
 
 def record_usage(usage: Usage, run_config: RunConfig) -> None:
