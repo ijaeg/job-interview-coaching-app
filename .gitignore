@@ -1,0 +1,16 @@
+# Secrets
+.env
+.streamlit/secrets.toml
+
+# Python
+.venv/
+__pycache__/
+*.egg-info/
+
+# Caches
+.pytest_cache/
+.ruff_cache/
+
+# Local tooling (symlinks into .venv)
+.agents/
+.claude/skills/
