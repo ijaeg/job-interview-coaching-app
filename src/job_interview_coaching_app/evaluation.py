@@ -21,7 +21,9 @@ from job_interview_coaching_app.schemas import (
     AnswerEvaluation,
     Gap,
     Question,
+    ReferenceKnowledge,
     RunConfig,
+    Usage,
 )
 
 
@@ -55,7 +57,7 @@ def evaluate_answer(
     followup_answer: str | None,
     run_config: RunConfig,
     gap: Gap | None = None,
-) -> AnswerEvaluation:
+) -> tuple[AnswerEvaluation, list[Usage]]:
     """Evaluate one main question with the variant selected in ``run_config``.
 
     Dispatches to the one-step path for P1-P3 and to the two-step path for P4/P5.
@@ -72,7 +74,8 @@ def evaluate_answer(
         gap: The gap this question targets, passed as evaluation context.
 
     Returns:
-        The validated evaluation (FR-08 AC2, AC3, AC4).
+        The validated evaluation (FR-08 AC2, AC3, AC4) and the usage of every API
+        call it took - one for P1-P3, two for P4/P5 (§5.2 AC3, FR-13 AC1).
 
     Raises:
         LLMError: On API failure or invalid JSON after the retry (NFR-02).
@@ -80,19 +83,19 @@ def evaluate_answer(
     variant = EvalVariant(run_config.eval_variant)
     user_content = build_evaluation_user_message(question, answer, followup, followup_answer, gap)
     if variant in TWO_STEP_VARIANTS:
-        evaluation = evaluate_two_step(variant, user_content, run_config)
+        evaluation, usages = evaluate_two_step(variant, question, gap, user_content, run_config)
     else:
-        evaluation = evaluate_one_step(variant, user_content, run_config)
+        evaluation, usages = evaluate_one_step(variant, user_content, run_config)
     if not 1 <= evaluation.score <= 5:
         raise LLMError(f"The evaluation returned an invalid score ({evaluation.score}).")
-    return evaluation
+    return evaluation, usages
 
 
 def evaluate_one_step(
     variant: EvalVariant,
     user_content: str,
     run_config: RunConfig,
-) -> AnswerEvaluation:
+) -> tuple[AnswerEvaluation, list[Usage]]:
     """Evaluate with a single call: P1 zero-shot, P2 few-shot or P3 chain-of-thought.
 
     P2's few-shot examples live in its prompt file and must not come from the
@@ -104,7 +107,7 @@ def evaluate_one_step(
         run_config: Frozen settings of the current run.
 
     Returns:
-        The validated evaluation.
+        The validated evaluation and the usage of the single call.
 
     Raises:
         LLMError: On API failure or invalid JSON after the retry.
@@ -113,34 +116,78 @@ def evaluate_one_step(
         {"role": "system", "content": load_prompt(f"evaluation/{variant.value}.md")},
         {"role": "user", "content": user_content},
     ]
-    evaluation, _usage = call_structured(messages, AnswerEvaluation, run_config)
-    return evaluation
+    evaluation, usage = call_structured(messages, AnswerEvaluation, run_config)
+    return evaluation, [usage]
 
 
 def evaluate_two_step(
     variant: EvalVariant,
+    question: Question,
+    gap: Gap | None,
     user_content: str,
     run_config: RunConfig,
-) -> AnswerEvaluation:
+) -> tuple[AnswerEvaluation, list[Usage]]:
     """Evaluate with two calls: P4 generated knowledge or P5 self-refinement.
 
-    P4 first asks what an excellent answer to *this* question for *this* gap would
-    contain and feeds that reference into a second scoring call. P5 first drafts an
-    evaluation and then critiques it against the rubric, returning the revision.
-    Both calls are counted for cost and latency (§5.2 AC3, FR-13 AC1).
+    The first call's system prompt is ``prompts/evaluation/<variant>_step1.md`` for P4
+    and the unchanged P1 prompt for P5; the second call uses ``<variant>.md``.
 
     Args:
         variant: Either P4 or P5.
+        question: The main question, for P4's reference request.
+        gap: The targeted gap, for P4's reference request.
         user_content: The rendered user message with question and answers.
         run_config: Frozen settings of the current run.
 
     Returns:
-        The validated evaluation from the second call.
+        The validated evaluation from the second call and the usage of both calls.
 
     Raises:
         LLMError: On API failure or invalid JSON after the retry.
     """
-    raise NotImplementedError
+    if variant is EvalVariant.P4_GENERATED_KNOWLEDGE:
+        first_messages = [
+            {"role": "system", "content": load_prompt(f"evaluation/{variant.value}_step1.md")},
+            {"role": "user", "content": build_reference_request(question, gap)},
+        ]
+        knowledge, first_usage = call_structured(first_messages, ReferenceKnowledge, run_config)
+        addition = wrap_untrusted(knowledge.model_dump_json(indent=2), "reference")
+    else:
+        first_messages = [
+            {"role": "system", "content": load_prompt(f"evaluation/{EvalVariant.P1_ZERO_SHOT.value}.md")},
+            {"role": "user", "content": user_content},
+        ]
+        draft, first_usage = call_structured(first_messages, AnswerEvaluation, run_config)
+        addition = wrap_untrusted(draft.model_dump_json(indent=2), "draft_evaluation")
+    second_messages = [
+        {"role": "system", "content": load_prompt(f"evaluation/{variant.value}.md")},
+        {"role": "user", "content": f"{user_content}\n\n{addition}"},
+    ]
+    evaluation, second_usage = call_structured(second_messages, AnswerEvaluation, run_config)
+    return evaluation, [first_usage, second_usage]
+
+
+def build_reference_request(question: Question, gap: Gap | None) -> str:
+    """Render the user message for call 1 of variant P4.
+
+    Contains the question and the targeted gap but deliberately **not** the
+    candidate's answer, so the generated reference cannot be anchored on it (§5.2).
+
+    Args:
+        question: The main question that was asked.
+        gap: The gap this question targets, if any.
+
+    Returns:
+        The user-message content.
+    """
+    parts = [f"Question type: {question.type}"]
+    if gap is not None:
+        parts.append(
+            f"Targeted gap ({gap.severity}): {gap.description} "
+            f"(JD requirement: {gap.jd_requirement})"
+        )
+    parts.append(wrap_untrusted(question.text, "question"))
+    return "\n\n".join(parts)
 
 
 def build_evaluation_user_message(
