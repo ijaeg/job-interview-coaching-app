@@ -21,6 +21,7 @@ from job_interview_coaching_app.schemas import (
     AnswerEvaluation,
     Gap,
     Question,
+    ReferenceKnowledge,
     RunConfig,
     Usage,
 )
@@ -144,7 +145,49 @@ def evaluate_two_step(
     Raises:
         LLMError: On API failure or invalid JSON after the retry.
     """
-    raise NotImplementedError
+    if variant is EvalVariant.P4_GENERATED_KNOWLEDGE:
+        first_messages = [
+            {"role": "system", "content": load_prompt(f"evaluation/{variant.value}_step1.md")},
+            {"role": "user", "content": build_reference_request(question, gap)},
+        ]
+        knowledge, first_usage = call_structured(first_messages, ReferenceKnowledge, run_config)
+        addition = wrap_untrusted(knowledge.model_dump_json(indent=2), "reference")
+    else:
+        first_messages = [
+            {"role": "system", "content": load_prompt(f"evaluation/{EvalVariant.P1_ZERO_SHOT.value}.md")},
+            {"role": "user", "content": user_content},
+        ]
+        draft, first_usage = call_structured(first_messages, AnswerEvaluation, run_config)
+        addition = wrap_untrusted(draft.model_dump_json(indent=2), "draft_evaluation")
+    second_messages = [
+        {"role": "system", "content": load_prompt(f"evaluation/{variant.value}.md")},
+        {"role": "user", "content": f"{user_content}\n\n{addition}"},
+    ]
+    evaluation, second_usage = call_structured(second_messages, AnswerEvaluation, run_config)
+    return evaluation, [first_usage, second_usage]
+
+
+def build_reference_request(question: Question, gap: Gap | None) -> str:
+    """Render the user message for call 1 of variant P4.
+
+    Contains the question and the targeted gap but deliberately **not** the
+    candidate's answer, so the generated reference cannot be anchored on it (§5.2).
+
+    Args:
+        question: The main question that was asked.
+        gap: The gap this question targets, if any.
+
+    Returns:
+        The user-message content.
+    """
+    parts = [f"Question type: {question.type}"]
+    if gap is not None:
+        parts.append(
+            f"Targeted gap ({gap.severity}): {gap.description} "
+            f"(JD requirement: {gap.jd_requirement})"
+        )
+    parts.append(wrap_untrusted(question.text, "question"))
+    return "\n\n".join(parts)
 
 
 def build_evaluation_user_message(

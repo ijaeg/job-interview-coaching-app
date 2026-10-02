@@ -59,6 +59,19 @@ class InterviewPlan(BaseModel):
     questions: list[Question] = Field(description="Exactly n main questions in asking order.")
 
 
+class ReferenceKnowledge(BaseModel):
+    """What an excellent answer to one question would contain (call 1 of variant P4, §5.2).
+
+    Generated from the question and the targeted gap only, never from the candidate's
+    answer, and passed to call 2 as the evaluation reference.
+    """
+
+    key_points: list[str] = Field(description="Points an excellent answer to this question covers.")
+    expected_evidence: list[str] = Field(
+        description="Concrete evidence a recruiter expects, e.g. numbers, named tools, outcomes."
+    )
+
+
 class StarRating(BaseModel):
     """STAR breakdown of a behavioural answer (FR-08 AC3).
 
