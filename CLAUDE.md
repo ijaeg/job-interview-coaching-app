@@ -181,7 +181,9 @@ The scaffold is complete and the happy path runs end to end on P1. Known stubs, 
 
 Commit messages are lowercase imperative with the requirement IDs in parentheses, e.g.
 `implement follow-up streaming, P1 evaluation and score aggregation (FR-07, FR-08, FR-09 AC1)`.
-Work happens on `feature/basic-setup`; `main` is the PR target.
+Work happens on one topic branch per feature area (`feature/…`, e.g. `feature/prompt-evaluation`);
+`main` holds the reviewed state and is updated only through pull requests with merge commits
+(no squash, so the per-requirement commits stay visible).
 
 Docstrings are Google-style (`Args:` / `Returns:` / `Raises:`) and cite requirement IDs. Module
 constants carry `#:` comments. `from __future__ import annotations` at the top of every module.
