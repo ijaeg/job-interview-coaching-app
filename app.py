@@ -306,7 +306,7 @@ def finish_turn(turn: Turn, question: Question) -> None:
     gap = next((g for g in plan.gaps if g.id == question.gap_id), None)
     try:
         with st.spinner("Saving your answer - feedback follows at the end ..."):
-            evaluation = evaluate_answer(
+            evaluation, _usages = evaluate_answer(
                 question, turn.answer, turn.followup, turn.followup_answer, run_config, gap
             )
     except LLMError as err:
