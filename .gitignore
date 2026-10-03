@@ -14,3 +14,9 @@ __pycache__/
 # Local tooling (symlinks into .venv)
 .agents/
 .claude/skills/
+
+# Development-only debug log (FR-15 AC5)
+logs/
+
+# Smoke runs of the evaluation harness; only results.csv and the effort CSVs are committed
+eval/smoke_*.csv
