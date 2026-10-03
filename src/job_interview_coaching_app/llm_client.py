@@ -207,6 +207,7 @@ def call_structured(
     )
     return message.parsed, usage
 
+
 def stream_text(
     messages: list[dict[str, str]],
     run_config: RunConfig,
