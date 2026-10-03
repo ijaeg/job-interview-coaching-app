@@ -4,7 +4,7 @@
 |---|---|
 | **Project** | Turing College – AI Engineering, Sprint 1 project ("Build an Interview Practice App") |
 | **Author** | Ingo Jäger |
-| **Status** | Draft v0.2.5 – 2026-10-01 (changes: see §13) |
+| **Status** | Draft v0.2.6 – 2026-10-03 (changes: see §13) |
 | **Audience** | Developer (implementation guide) and Turing College tutor (review guide) |
 | **Stack** | Python 3.13, Streamlit, OpenAI Python SDK against the OpenRouter API, Pydantic |
 | **Time budget** | ≈ 50 hours over two weeks, including tests, documentation and review preparation (see §11) |
@@ -230,9 +230,10 @@ The app protects against misuse in four layers:
 
 #### FR-15 Privacy handling (Must)
 - AC1: The app shows a short notice above the inputs: "Your texts are sent to an LLM provider via OpenRouter for processing. They are not stored by this app."
-- AC2: CV, JD and answers are held only in `st.session_state`; they are not written to disk and not logged.
+- AC2: CV, JD and answers are held only in `st.session_state`; they are not written to disk and not logged. The only exception is the opt-in debug log of AC5, which is off by default.
 - AC3: The OpenRouter API key is read from the environment variable `OPENROUTER_API_KEY` (or a `.env` file listed in `.gitignore`); it never appears in the repository or the UI.
 - AC4: Development and tests use only the fictional sample data.
+- AC5: For development and tests only, setting the environment variable `DEBUG_LOG=1` makes `llm_client` append every LLM call (messages, response, model, reasoning effort, token usage, latency) as one JSON line to `logs/llm_calls.jsonl`. The log is off by default, `logs/` is listed in `.gitignore`, it is used with the fictional sample data only (AC4) and it is never enabled in a deployed app.
 
 ---
 
@@ -488,6 +489,8 @@ Not claimed: Medium 7 (the model selector offers only the three allowed OpenAI m
 ---
 
 ## 13. Change log
+
+**v0.2.6 (2026-10-03)** – FR-15: new AC5 for an opt-in, development-only debug log (`DEBUG_LOG=1`, `logs/llm_calls.jsonl`, gitignored, off by default); AC2 names it as the only exception to "not logged".
 
 **v0.2.5 (2026-10-01)** – §10.2: README section "note on tooling" corrected – the project is developed in VS Code as recommended by Turing College (the earlier reference to IntelliJ IDEA was wrong); the section now also covers how AI assistance was used.
 

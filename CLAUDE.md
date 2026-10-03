@@ -148,8 +148,10 @@ then cost. P2's few-shot examples must not come from the evaluation dataset (no 
   patterns are deliberately narrow (a real CV may say "system prompt"); widen them only with a
   test case in `tests/test_guards.py`.
 - **Privacy (FR-15).** JD, CV and answers stay in `st.session_state` only — never written to disk,
-  never logged. Development and tests use fictional sample data only. Error messages name the
-  `OPENROUTER_API_KEY` variable, never its value.
+  never logged, with one exception: the opt-in debug log (`DEBUG_LOG=1` → `logs/llm_calls.jsonl`,
+  gitignored, FR-15 AC5) for development with the fictional sample data. Development and tests
+  use fictional sample data only. Error messages name the `OPENROUTER_API_KEY` variable, never
+  its value.
 - **Every non-streamed LLM call runs inside `st.spinner`** with descriptive text (NFR-04), and
   the `st.spinner` belongs in `app.py`, not in the module making the call. Errors never surface a
   stack trace: `llm_client` converts every `openai` exception into an `LLMError` with a

@@ -64,6 +64,16 @@ environment variable takes precedence over the file. `.env` is listed in `.gitig
 key appears neither in the repository nor in the UI (FR-15 AC3). The app starts and renders
 without a key — it is needed only once the first LLM call runs (NFR-01).
 
+**Debug log (development only).** Setting `DEBUG_LOG=1` (in the environment or in `.env`) makes
+every LLM call append one JSON line to `logs/llm_calls.jsonl`: messages, response, model,
+reasoning effort, token usage and latency. It is off by default and `logs/` is gitignored. Because
+the log contains the full JD, CV and answers, it is meant for the fictional sample data only and
+never for a deployed app (FR-15 AC5).
+
+```bash
+DEBUG_LOG=1 uv run streamlit run app.py
+```
+
 Tests (NFR-06):
 
 ```bash

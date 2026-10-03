@@ -15,7 +15,11 @@ Related: FR-11, FR-13, NFR-02, NFR-03, NFR-04, NFR-05.
 
 from __future__ import annotations
 
+import json
 import os
+import time
+from dataclasses import asdict
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterator, TypeVar
 
@@ -44,6 +48,12 @@ REQUEST_TIMEOUT_SECONDS: float = 60.0
 
 #: Attempts for a structured call; the second one only after invalid JSON (NFR-02).
 MAX_ATTEMPTS: int = 2
+
+#: Environment variable that switches the development-only debug log on when set to "1" (FR-15 AC5).
+DEBUG_LOG_ENV: str = "DEBUG_LOG"
+
+#: JSONL file of the debug log; ``logs/`` is listed in ``.gitignore`` (FR-15 AC5).
+DEBUG_LOG_PATH: Path = Path(__file__).resolve().parents[2] / "logs" / "llm_calls.jsonl"
 
 TModel = TypeVar("TModel", bound=BaseModel)
 
@@ -154,6 +164,7 @@ def call_structured(
     if run_config.top_p is not None:
         kwargs["top_p"] = run_config.top_p
 
+    started = time.perf_counter()
     for attempt in range(1, MAX_ATTEMPTS + 1):
         try:
             response = get_client().chat.completions.parse(**kwargs)
@@ -180,8 +191,21 @@ def call_structured(
             raise LLMError("The model declined to answer this request.")
         raise LLMError("The model returned no usable answer. Please try again.")
 
-    return message.parsed, extract_usage(response)
-
+    usage = extract_usage(response)
+    write_debug_log(
+        {
+            "kind": "structured",
+            "model": run_config.model,
+            "reasoning_effort": run_config.reasoning_effort,
+            "eval_variant": run_config.eval_variant,
+            "response_model": response_model.__name__,
+            "messages": messages,
+            "response": message.parsed.model_dump(),
+            "usage": asdict(usage),
+            "latency_s": round(time.perf_counter() - started, 2),
+        }
+    )
+    return message.parsed, usage
 
 def stream_text(
     messages: list[dict[str, str]],
@@ -215,16 +239,20 @@ def stream_text(
     if run_config.top_p is not None:
         kwargs["top_p"] = run_config.top_p
 
-    received_text = False
+    started = time.perf_counter()
+    pieces: list[str] = []
+    usage: Usage | None = None
     try:
         for chunk in get_client().chat.completions.create(**kwargs):
-            # Chunks without choices (e.g. a final usage chunk) and reasoning-only
-            # chunks carry no visible text.
+            # The final chunk may carry the token usage but no choices; read it first.
+            if chunk.usage is not None:
+                usage = extract_usage(chunk)
+            # Chunks without choices and reasoning-only chunks carry no visible text.
             if not chunk.choices:
                 continue
             text = chunk.choices[0].delta.content
             if text:
-                received_text = True
+                pieces.append(text)
                 yield text
     except openai.APITimeoutError as err:
         raise LLMError("The request timed out after 60 seconds. Please try again.") from err
@@ -232,9 +260,21 @@ def stream_text(
         raise LLMError(f"API responded with status code {err.status_code}") from err
     except openai.APIConnectionError as err:
         raise LLMError("API Connection could not be established.") from err
-    if not received_text:
+
+    if not pieces:
         # NFR-03: reasoning tokens used up the whole budget before any text arrived.
         raise LLMError("The interviewer returned no text - increase max tokens in the developer settings.")
+    write_debug_log(
+        {
+            "kind": "stream",
+            "model": run_config.model,
+            "reasoning_effort": run_config.reasoning_effort,
+            "messages": messages,
+            "response": "".join(pieces),
+            "usage": asdict(usage) if usage is not None else None,
+            "latency_s": round(time.perf_counter() - started, 2),
+        }
+    )
 
 
 def record_usage(usage: Usage, run_config: RunConfig) -> None:
@@ -270,3 +310,25 @@ def extract_usage(response: Any) -> Usage:
         completion_tokens=usage.completion_tokens or 0,
         reasoning_tokens=(details.reasoning_tokens or 0) if details else 0,
     )
+
+
+def write_debug_log(record: dict[str, Any]) -> None:
+    """Append one LLM call to the development-only debug log (FR-15 AC5).
+
+    Does nothing unless the environment variable ``DEBUG_LOG`` is set to ``"1"``. The
+    log holds the full messages, i.e. JD, CV and answers, so it is meant for
+    development and tests with the fictional sample data only and must never be
+    enabled in a deployed app. A failing write never interrupts the app (NFR-02).
+
+    Args:
+        record: The call details; a UTC timestamp is added in front.
+    """
+    if os.getenv(DEBUG_LOG_ENV) != "1":
+        return
+    entry = {"timestamp": datetime.now(timezone.utc).isoformat(timespec="seconds"), **record}
+    try:
+        DEBUG_LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
+        with DEBUG_LOG_PATH.open("a", encoding="utf-8") as file:
+            file.write(json.dumps(entry, ensure_ascii=False) + "\n")
+    except OSError:
+        pass  # a debug aid must never break the app
