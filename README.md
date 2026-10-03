@@ -2,7 +2,7 @@
 
 A Streamlit app that prepares a candidate for one specific job interview. Turing College,
 AI Engineering, Sprint 1. The authoritative design document is
-[`PRODUCT_SPEC.md`](PRODUCT_SPEC.md) (v0.2.5).
+[`PRODUCT_SPEC.md`](PRODUCT_SPEC.md) (v0.2.6).
 
 ## Purpose
 
@@ -21,9 +21,11 @@ The engineering focus is not the feature count but a measurable comparison of fi
 techniques for the answer-evaluation task, a documented model-settings experiment, and a layered
 security guard.
 
-**Current state.** The path `SETUP → BRIEF → INTERVIEW → REPORT` runs end to end using evaluation
-variant P1. The developer sidebar, token/cost tracking, the L3 classifier and the evaluation
-variants P2–P5 are not built yet. The table below is derived from the code, not from the spec;
+**Current state.** The path `SETUP → BRIEF → INTERVIEW → REPORT` runs end to end. All five
+evaluation variants P1–P5 are implemented and were compared in a full evaluation run; P1
+(zero-shot) won and is the default. Prices come from the OpenRouter models endpoint, and the
+evaluation harness reports the cost per evaluation. The developer sidebar (including the variant
+selector and the cost display) and the L3 classifier are not built yet. The table below is derived from the code, not from the spec;
 "partly" means that some acceptance criteria are met and others are still open.
 
 | ID | Requirement | Status | Notes |
@@ -35,14 +37,14 @@ variants P2–P5 are not built yet. The table below is derived from the code, no
 | FR-05 | Main question planning | implemented | Question mix, gap references and duplicate texts re-checked in `interview._validate_plan` |
 | FR-06 | Chat-based interview | implemented | Includes early "Finish interview" |
 | FR-07 | Adaptive follow-up | implemented | Multi-turn, streamed, after `gap` questions only |
-| FR-08 | Per-answer evaluation | implemented | Variant P1 only: `evaluation.evaluate_two_step` (P4/P5) raises `NotImplementedError`, and the prompt files for P2–P5 are still TODO headers |
+| FR-08 | Per-answer evaluation | implemented | All five variants P1–P5; P4 and P5 make two calls each. Default is P1, the winner of the evaluation run |
 | FR-09 | Report | implemented | Overall score computed in Python, no extra LLM call |
 | FR-10 | Separated developer settings | partly | The frozen `RunConfig` and the `BRIEF → INTERVIEW` freeze exist; `app.render_sidebar` renders a TODO placeholder, so no control is shown |
 | FR-11 | Model and parameter controls | planned | Model allow-list, reasoning effort and max tokens are plumbed through `llm_client` and `RunConfig`, but there are no widgets |
-| FR-12 | Prompt variant selector | planned | `EvalVariant` and the variant dispatch exist; no selector, default P1 |
-| FR-13 | Token usage and cost | planned | `llm_client.record_usage` and all four `pricing.py` functions raise `NotImplementedError`; `extract_usage` works |
+| FR-12 | Prompt variant selector | planned | `EvalVariant` and the dispatch for all five variants exist; no selector yet, default P1 (winner of the evaluation run) |
+| FR-13 | Token usage and cost | partly | Prices from the OpenRouter models endpoint (`pricing.fetch_models`, `get_pricing`, `compute_cost`) and the token usage of every call work and feed the cost column of the evaluation harness; `llm_client.record_usage`, `pricing.get_supported_parameters` and the sidebar display are open |
 | FR-14 | Layered security guard | partly | L1, L2 and L4 are active; L3 `guards.classify_inputs` raises `NotImplementedError` (Should); AC5 is open: `docs/security_tests.md` contains no test cases yet |
-| FR-15 | Privacy handling | implemented | Notice shown, data kept in `st.session_state` only, key read from the environment |
+| FR-15 | Privacy handling | implemented | Notice shown, data kept in `st.session_state` only, key read from the environment; opt-in debug log for development only (AC5) |
 
 ## Screenshots
 
@@ -81,16 +83,23 @@ uv run pytest                                      # whole suite
 uv run pytest tests/test_guards.py::test_name -v   # a single test
 ```
 
-Current result: **37 passed, 4 skipped** out of 41 collected. The four skips are the three
+Current result: **42 passed, 4 skipped** out of 46 collected. The four skips are the three
 `RunConfig` tests in `tests/test_run_config.py` and one state-transition test in
 `tests/test_interview.py`; all are marked `@pytest.mark.skip(reason="not implemented")` because
 the features they cover do not exist yet. All tests are deterministic and mock every LLM call.
 
-The prompt-variant evaluation harness exists as a CLI stub and does not produce results yet:
+The prompt-variant evaluation harness scores the evaluation variants against the reference
+answers in `eval/dataset.json` (see *Prompt comparison results*):
 
 ```bash
-uv run python eval/run_eval.py          # eval/run_eval.py: main() raises NotImplementedError
+uv run python eval/run_eval.py          # full run: 5 variants x 8 answers x 2 runs -> eval/results.csv
+uv run python eval/run_eval.py --variants p1_zero_shot --runs 1 --output eval/smoke_p1.csv
+uv run python eval/run_eval.py --variants p1_zero_shot --effort minimal --output eval/effort_minimal.csv
 ```
+
+Options: `--variants` (prompt file stems, default all five), `--runs` (default 2), `--effort`
+(reasoning effort, default `low` as in the app) and `--output` (default `eval/results.csv`). A full
+run makes 112 API calls (P4 and P5 need two per evaluation) and costs about USD 0.23.
 
 No linter, formatter, type checker or CI is configured.
 
@@ -125,7 +134,8 @@ example answer. A caption names the evaluation variant and the model that produc
 
 Because the developer sidebar is still a placeholder (FR-10 to FR-13), every run currently uses
 the fixed defaults from `app.default_run_config`: model `openai/gpt-5-mini`, reasoning effort
-`low`, `max_tokens` 4,000, evaluation variant P1.
+`low`, `max_tokens` 4,000, evaluation variant P1 (zero-shot), the winner of the evaluation run
+(see *Prompt comparison results*).
 
 ## Research and product idea
 
@@ -189,25 +199,24 @@ read as the follow-up answer before the turn is evaluated and appended to the re
 | File | Responsibility |
 |---|---|
 | `app.py` | Streamlit UI and the state machine, nothing else. Contains no prompt text (NFR-05) |
-| `src/job_interview_coaching_app/llm_client.py` | OpenRouter client, structured and streamed calls, prompt loading, error translation, usage extraction |
+| `src/job_interview_coaching_app/llm_client.py` | OpenRouter client, structured and streamed calls, prompt loading, error translation, usage extraction, opt-in debug log |
 | `src/job_interview_coaching_app/schemas.py` | Pydantic models `InterviewPlan`, `AnswerEvaluation`, `GuardVerdict`; the frozen `RunConfig` and `Usage` |
 | `src/job_interview_coaching_app/interview.py` | `State` enum, `Turn`/`TurnResult`, question-mix rule, plan validation, interviewer message builder, score aggregation |
 | `src/job_interview_coaching_app/evaluation.py` | The five evaluation variants P1–P5 and their dispatch |
 | `src/job_interview_coaching_app/guards.py` | Security layers L1–L4 |
-| `src/job_interview_coaching_app/pricing.py` | OpenRouter models endpoint: prices and supported parameters (not implemented yet) |
-| `prompts/` | All prompt text as Markdown: `analysis.md`, `interviewer.md`, `classifier.md`, `evaluation/p1_zero_shot.md` … `p5_self_refinement.md` |
+| `src/job_interview_coaching_app/pricing.py` | OpenRouter models endpoint: prices and cost per call; supported parameters not implemented yet |
+| `prompts/` | All prompt text as Markdown: `analysis.md`, `interviewer.md`, `classifier.md`, `evaluation/p1_zero_shot.md` … `p5_self_refinement.md`, plus `evaluation/p4_generated_knowledge_step1.md` for the first call of P4 |
 | `data/samples/` | Fictional JD and CV |
-| `eval/` | `dataset.json` with the reference answers and the `run_eval.py` harness |
+| `eval/` | `dataset.json` with the reference answers, the `run_eval.py` harness, `results.csv` (evaluation run) and `effort_minimal.csv` / `effort_medium.csv` (settings experiment) |
 | `docs/` | `security_tests.md` |
-| `tests/` | `test_guards.py`, `test_interview.py`, `test_run_config.py` |
+| `tests/` | `test_guards.py`, `test_interview.py`, `test_pricing.py`, `test_debug_log.py`, `test_run_config.py` |
 
 The dependency direction is one-way: `app.py` → `interview` / `evaluation` / `guards` →
 `llm_client` → `schemas`. `app.py` never calls `llm_client` directly, and the modules below
 `app.py` do not touch `st.session_state`.
 
-Of the prompt files, `analysis.md`, `interviewer.md` and `evaluation/p1_zero_shot.md` are written;
-`classifier.md` and the prompts for P2–P5 are still TODO headers. `eval/results.csv` and
-`docs/security_tests.xlsx` do not exist yet.
+All prompt files except `classifier.md` are written; `classifier.md` is still a TODO header.
+`docs/security_tests.xlsx` does not exist yet.
 
 ### The LLM calls
 
@@ -221,7 +230,7 @@ tokens count against it.
 |---|---|---|---|
 | Analysis and question planning | `system` + `user` | `InterviewPlan` JSON, schema-validated | implemented |
 | Interviewer follow-up | `system`, then alternating `assistant` and `user` — the only multi-turn call | Free text, streamed with `st.write_stream` | implemented |
-| Answer evaluation | `system` + `user` | `AnswerEvaluation` JSON, schema-validated | implemented for P1 |
+| Answer evaluation | `system` + `user`; two calls for P4 and P5 | `AnswerEvaluation` JSON, schema-validated (P4's first call: `ReferenceKnowledge` JSON) | implemented, P1–P5 |
 | Guard classifier (L3) | `system` + `user`, on `openai/gpt-5-nano` | `GuardVerdict` JSON | planned |
 
 In `AnswerEvaluation` the field `reasoning` is declared before `score`: fields are generated in
@@ -251,14 +260,103 @@ TBD — the five most important design choices and the reasoning behind each.
 
 ## Prompt comparison results
 
-TBD — the results table for all metrics of PRODUCT_SPEC §7.2 over the variants P1–P5, the winner,
-why the winning technique performed best, and at least one observed weakness. This section
-requires `eval/run_eval.py`, which is still a stub.
+Dataset: 8 reference answers to 3 questions with scores assigned by the author before the prompts
+were tuned ([`eval/dataset.json`](eval/dataset.json)). Each variant scored every answer twice with
+`openai/gpt-5-mini` at reasoning effort `low`: 80 rows in [`eval/results.csv`](eval/results.csv).
+Bands: weak = 1–2, ok = 3, strong = 4–5. Scale, rules and security section are identical in all
+five prompts, so the variants differ only in the technique.
+
+| Variant | Band accuracy | MAE | Consistency | Injection (A7 ≤ 2) | Cost / evaluation (USD) | Latency (s) |
+|---|---|---|---|---|---|---|
+| *Target* | *≥ 75 %* | *≤ 1.0* | *≤ 0.5* | *all runs* | *reported* | *reported* |
+| **P1 zero-shot** | **100 %** | **0.12** | **0.00** | ok | 0.00186 | 9.2 |
+| P2 few-shot | 88 % | 0.38 | 0.50 | ok | 0.00204 | 7.5 |
+| P3 chain-of-thought | 94 % | 0.19 | 0.12 | ok | 0.00291 | 11.6 |
+| P4 generated knowledge (2 calls) | 81 % | 0.38 | 0.25 | ok | 0.00335 | 13.1 |
+| P5 self-refinement (2 calls) | 100 % | 0.19 | 0.12 | ok | 0.00395 | 14.3 |
+
+All five variants meet all targets. **Winner: P1 zero-shot** — tied with P5 on band accuracy, ahead
+on MAE (0.12 vs. 0.19) and at less than half of P5's cost.
+
+Where the scores deviated from the labels (16 evaluations per variant):
+
+| Answer (expected) | Deviations | Wrong band |
+|---|---|---|
+| A1 strong STAR answer (5) | P4 once 4 | – |
+| A2 strong STAR answer (4) | P2 once 5, P5 once 5 | – |
+| A3 action, no result (3) | P2 once 4, P3 once 4 | P2, P3 |
+| A4 action, no result (3) | P4 twice 2 | P4 |
+| A5 vague answer (2) | P2 once 1 | – |
+| A6 off-topic (1) | none | – |
+| A7 prompt injection (1) | every variant, every run: 2 | – |
+| A8 short but correct (3) | P2 once 4, P4 once 2 | P2, P4 |
+
+**Why it won.** The simplest technique wins because the decisive work sits in the blocks that all
+five prompts share:
+
+- **Precise shared rules.** Scale, rules and security section are identical in every variant and
+  already spell out the hard cases: when STAR applies, the cap for a missing result, how to treat
+  off-topic answers and injections. Zero-shot gets almost everything it needs from them.
+- **A reasoning model.** `gpt-5-mini` reasons internally before it answers. Explicit
+  chain-of-thought (P3) therefore produced about 65 % more completion tokens (1,236 vs. 752 on
+  average) without more hits.
+- **The extra techniques bring their own errors.** P4 measures against an ideal answer and becomes
+  too strict, P2 follows examples from a different domain and is the least consistent, and P5
+  finds nothing to correct in its P1 draft (see below).
+
+The conclusion is not that zero-shot is the best technique in general, but that **with precise
+rules and a reasoning model, the more elaborate techniques brought no measurable benefit in this
+test while costing 1.5 to 2 times as much.**
+
+**Observed weaknesses.**
+
+- **P4 (generated knowledge) is systematically too strict.** All its deviations point downwards
+  (A1, A4, A8). The reasoning shows why: the answer is measured against the generated ideal answer,
+  and every missing point lowers the score ("leaves most of the reference criteria unmet"). The
+  short but correct answer A8 suffers most.
+- **P5 (self-refinement) never changed a score.** In all 16 evaluations the revised score equals the
+  draft score; the second call only polished texts such as the improved answer. Its two
+  deviations (A2 scored 5) already come from the draft, i.e. from the P1 call. P5 therefore gives
+  P1's result at more than twice the cost.
+- **A7 (prompt injection) scores 2 instead of 1 in every run of every variant.** The injection is
+  recognised and ignored (P3 names it explicitly); the 2 is given for the remaining content, which
+  is relevant but vague. The manipulation did not work — the deviation stems from the label (1)
+  being stricter than the rule ("at most 2").
+- **A3 is a borderline case.** P2 and P3 scored it 4 instead of 3 in one of two runs each. The rule
+  allows "at most 4" when the result is missing, while the label expects 3; a 4 stays within the
+  rule.
 
 ## Settings experiment
 
-TBD — the comparison of reasoning effort `minimal` against `medium` on the winning variant. A
-temperature comparison is not possible, because none of the three allowed models supports
+The winning variant P1 was re-run with reasoning effort `minimal` and `medium` (2 runs per answer;
+[`eval/effort_minimal.csv`](eval/effort_minimal.csv), [`eval/effort_medium.csv`](eval/effort_medium.csv)).
+The values for `low` are taken from the main run.
+
+| Reasoning effort | Band accuracy | MAE | Consistency | Completion tokens (mean) | Cost / evaluation (USD) | Latency (s) |
+|---|---|---|---|---|---|---|
+| minimal | 94 % | 0.25 | 0.25 | 600 | 0.00155 | 5.4 |
+| **low** (app default) | **100 %** | **0.12** | **0.00** | 752 | 0.00186 | 9.2 |
+| medium | 88 % | 0.31 | 0.12 | 1,477 | 0.00331 | 12.8 |
+
+Deviations: `minimal` scored A1 once 4 and A3 once 4; `medium` scored A2 once 5 and A3 twice 4;
+A7 received 2 at every level.
+
+**Result.** All three levels meet all targets, so reasoning effort is not a critical lever for this
+prompt. More effort did not make the judge more accurate: `medium` is behind `low`, and its errors
+again hit A3 — with more budget the model applies the rule "at most 4 without a result" more
+literally. Less effort makes the judge less stable rather than less accurate: at `minimal` the same
+answer receives different scores in the two runs more often (consistency 0.25). Cost and latency
+scale clearly: `medium` costs almost twice as much and takes 40 % longer, `minimal` mainly saves
+time.
+
+**Recommendation:** `low` stays the default. It is the only level without differences between two
+runs and with the smallest deviation from the labels, at little extra cost over `minimal`. One
+trade-off remains: the evaluation runs after every main question and the user waits for it, so
+`minimal` would almost halve that wait at slightly lower reliability. As in the main run, the
+differences rest on one or two of 16 evaluations; the reliable finding is the direction — more
+effort costs clearly more without improving accuracy here.
+
+A temperature comparison is not possible, because none of the three allowed models supports
 `temperature` or `top_p`.
 
 ## Security tests summary
@@ -272,7 +370,19 @@ TBD — the critique of this project by ChatGPT and what was changed because of 
 
 ## Known limitations
 
-TBD — what the app does not do, and where its output can be wrong.
+Limits of the prompt evaluation (draft — to be reviewed by the author):
+
+- **Small dataset.** 8 reference answers to 3 questions. With 16 evaluations per variant, one
+  deviating score moves band accuracy by about 6 percentage points, so the differences between
+  P1, P3 and P5 rest on one or two evaluations.
+- **One labeler, one model family, two runs.** All expected scores come from the author; all
+  calls use `openai/gpt-5-mini`.
+- **Labels and rules differ in two places.** The injection answer A7 is labelled 1, while the
+  rules cap such answers at "at most 2"; every variant scored it 2. An answer without a result is
+  labelled 3, while the rules allow "at most 4"; this is where A3 flips between 3 and 4.
+- **A2's label is debatable.** Several variants scored A2 a 5 instead of the expected 4.
+
+TODO — what the app itself does not do, and where its output can be wrong.
 
 ## Ideas for improvement
 
@@ -293,7 +403,10 @@ It was planned and built with AI assistance, with a clear split of responsibilit
 - **Claude Desktop** – validated the product idea against the course requirements, drafted
   `PRODUCT_SPEC.md`, turned the author's source material into the fictional sample JD and CV,
   broke the project plan down into daily task lists, proposed code and prompt snippets, and
-  reviewed the author's code and prompts throughout.
+  reviewed the author's code and prompts throughout. It also drafted the factual parts of the
+  evaluation sections in this README (tables and deviation lists).
+- **Gemini** – generated the candidate answers used as few-shot examples in P2 (fictional, outside
+  the evaluation dataset); their evaluations were written by the author.
 - **Claude Code CLI** – generated the initial scaffolding (folder structure, function stubs and
   test skeletons) and drafted `CLAUDE.md` and this README.
 - **The author** – owns the product idea and every decision on scope and design, wrote and

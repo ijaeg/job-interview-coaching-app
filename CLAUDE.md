@@ -12,7 +12,7 @@ report.
 Two documents govern the work and should be read before non-trivial changes:
 
 - `PRODUCT_SPEC.md` — **the source of truth.** Versioned with a change log (§13, currently
-  v0.2.5). Requirements have stable IDs (`FR-07`, `NFR-06`, `AC3`); use them in commit messages
+  v0.2.6). Requirements have stable IDs (`FR-07`, `NFR-06`, `AC3`); use them in commit messages
   and PR descriptions. If code and spec disagree, update the spec deliberately rather than
   letting them drift.
 - `115.md` — the upstream assignment brief: mandatory requirements, the optional-task list the
@@ -30,10 +30,12 @@ The project is **uv-only**. Never invoke bare `pip` or `python`.
 uv sync                               # install/lock deps (build backend: uv_build, src layout)
 uv add <pkg>                          # add a dependency
 uv run streamlit run app.py           # run the app
-uv run pytest                         # tests (NFR-06) — currently 37 pass, 4 skipped
+uv run pytest                         # tests (NFR-06) — currently 42 pass, 4 skipped
 uv run pytest tests/test_guards.py::test_name -v   # single test
-uv run python eval/run_eval.py        # prompt-variant evaluation harness (§7.2; main() is a stub)
+uv run python eval/run_eval.py        # full evaluation run (§7.2): 5 variants x 8 answers x 2 runs -> eval/results.csv
 uv run python eval/run_eval.py --variants p1_zero_shot p3_chain_of_thought --runs 2
+uv run python eval/run_eval.py --variants p1_zero_shot --effort minimal --output eval/effort_minimal.csv
+DEBUG_LOG=1 uv run streamlit run app.py   # opt-in debug log -> logs/llm_calls.jsonl (FR-15 AC5)
 ```
 
 Python 3.13, pinned by `.python-version` and `requires-python = ">=3.13"`.
@@ -50,16 +52,16 @@ app, and should not be updated or linted into shape.
 ```text
 app.py                                 # Streamlit UI + state machine ONLY — no prompt text (NFR-05)
 src/job_interview_coaching_app/
-    llm_client.py   # OpenRouter client, call_structured / stream_text, prompt loading, usage
+    llm_client.py   # OpenRouter client, call_structured / stream_text, prompt loading, usage, debug log
     schemas.py      # Pydantic: InterviewPlan, AnswerEvaluation, GuardVerdict; frozen RunConfig, Usage
     interview.py    # State enum, Turn/TurnResult, question-mix rule, message builder, aggregation
     evaluation.py   # EvalVariant P1–P5 dispatch (P4/P5 are two-call variants)
     guards.py       # security layers L1–L4
-    pricing.py      # OpenRouter /models endpoint: prices + supported_parameters
+    pricing.py      # OpenRouter /models endpoint: prices + cost (done), supported_parameters (open)
 prompts/{analysis,interviewer,classifier}.md
-prompts/evaluation/p1_zero_shot.md … p5_self_refinement.md
+prompts/evaluation/p1_zero_shot.md … p5_self_refinement.md, p4_generated_knowledge_step1.md (P4 call 1)
 data/samples/                          # fictional JD + CV
-eval/{dataset.json,run_eval.py}        # results.csv is produced by the harness
+eval/{dataset.json,run_eval.py}        # results.csv (main run), effort_minimal/medium.csv (§7.3)
 docs/security_tests.md                 # security_tests.xlsx still to be produced
 tests/
 ```
@@ -164,20 +166,25 @@ then cost. P2's few-shot examples must not come from the evaluation dataset (no 
 
 ## Current state
 
-The scaffold is complete and the happy path runs end to end on P1. Known stubs, each raising
-`NotImplementedError` or marked TODO — check these before assuming a feature works:
+The happy path runs end to end. All five evaluation variants P1–P5 work (P4/P5 with two calls
+each), the full evaluation run is in `eval/results.csv`, and P1 zero-shot won and is
+`evaluation.DEFAULT_VARIANT`. Prices come from the OpenRouter models endpoint
+(`pricing.fetch_models`, `get_pricing`, `compute_cost`), every call returns its `Usage`, and the
+harness reports cost per evaluation. The opt-in debug log (`DEBUG_LOG=1`) is in `llm_client`.
 
-- `llm_client.record_usage` and all four `pricing.py` functions → FR-13 cost tracking is dead.
-- `guards.classify_inputs` + `prompts/classifier.md` → L3 is not wired up.
-- `evaluation.evaluate_two_step` → P4 and P5 cannot run. Of the prompt files, only
-  `analysis.md`, `interviewer.md` and `evaluation/p1_zero_shot.md` are written; `classifier.md`
-  and the P2–P5 evaluation prompts are still TODO headers.
+Still open, each raising `NotImplementedError` or marked TODO — check these before assuming a
+feature works:
+
+- `llm_client.record_usage` and `pricing.get_supported_parameters` → no session cost total yet,
+  and the sampling controls cannot be enabled per model (FR-11 AC3, FR-13).
 - `app.render_sidebar` → FR-10/11/12/13 widgets are missing; `app.default_run_config` stands in
   for the frozen sidebar snapshot.
-- `eval/run_eval.band_of` and `main` → no `results.csv` yet.
+- `guards.classify_inputs` + `prompts/classifier.md` → L3 is not wired up.
 - `tests/test_run_config.py` (3 skipped) and one skipped state-transition test.
-- `docs/security_tests.md` has no rows; `README.md` is a first draft whose result and
-  reflection sections are still TBD.
+- `docs/security_tests.md` has no rows and `docs/security_tests.xlsx` does not exist (FR-14 AC5).
+- `README.md`: the evaluation results and the settings experiment are written; screenshots,
+  design decisions, security test summary, ChatGPT critique, parts of the known limitations,
+  ideas for improvement and the traceability table are still TBD.
 
 ## Conventions
 
@@ -193,11 +200,10 @@ constants carry `#:` comments. `from __future__ import annotations` at the top o
 ## Scope discipline
 
 Sprint 1 explicitly excludes LangChain, agents, RAG/vector DB, PDF upload, persistence, and
-deployment (§2.2). Spec §11 sets the cut rule at **end of Sat 2026-10-03**: anything not working
-by then that is not a *Must* is dropped and listed under "Ideas for improvement" — except §7
-(prompt evaluation) and FR-07 (adaptive follow-up), which are never cut. Feature freeze is
-Tue 2026-10-06, hard deadline Mon 2026-10-12; no new features after the freeze.
+deployment (§2.2). Anything that is not working by the feature freeze on **Tue 2026-10-06** is
+dropped, marked as not implemented, and listed under "Ideas for improvement" in the README — except
+§7 (prompt evaluation) and FR-07 (adaptive follow-up), which are never cut. Hard deadline is
+Mon 2026-10-12; no new features after the freeze.
 
-`README.md` is a first draft with all sections listed in §10.2 (NFR-07). Still to be filled:
-the prompt-comparison results table, the reasoning-effort experiment, the security test summary
-and the reflection sections (design decisions, ChatGPT critique, limitations, improvements).
+`README.md` contains all sections listed in §10.2 (NFR-07); see *Current state* for the ones that
+are still TBD. The README must always match the actual state of the code.
