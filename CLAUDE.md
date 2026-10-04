@@ -30,7 +30,7 @@ The project is **uv-only**. Never invoke bare `pip` or `python`.
 uv sync                               # install/lock deps (build backend: uv_build, src layout)
 uv add <pkg>                          # add a dependency
 uv run streamlit run app.py           # run the app
-uv run pytest                         # tests (NFR-06) — currently 42 pass, 4 skipped
+uv run pytest                         # tests (NFR-06) — currently 50 pass, none skipped
 uv run pytest tests/test_guards.py::test_name -v   # single test
 uv run python eval/run_eval.py        # full evaluation run (§7.2): 5 variants x 8 answers x 2 runs -> eval/results.csv
 uv run python eval/run_eval.py --variants p1_zero_shot p3_chain_of_thought --runs 2
@@ -52,12 +52,12 @@ app, and should not be updated or linted into shape.
 ```text
 app.py                                 # Streamlit UI + state machine ONLY — no prompt text (NFR-05)
 src/job_interview_coaching_app/
-    llm_client.py   # OpenRouter client, call_structured / stream_text, prompt loading, usage, debug log
+    llm_client.py   # OpenRouter client, call_structured / stream_text, prompt loading, usage + session total, debug log
     schemas.py      # Pydantic: InterviewPlan, AnswerEvaluation, GuardVerdict; frozen RunConfig, Usage
-    interview.py    # State enum, Turn/TurnResult, question-mix rule, message builder, aggregation
+    interview.py    # State enum, Turn/TurnResult, question-mix rule, message builder, RunConfig snapshot, aggregation
     evaluation.py   # EvalVariant P1–P5 dispatch (P4/P5 are two-call variants)
     guards.py       # security layers L1–L4
-    pricing.py      # OpenRouter /models endpoint: prices + cost (done), supported_parameters (open)
+    pricing.py      # OpenRouter /models endpoint: prices, cost, supported_parameters
 prompts/{analysis,interviewer,classifier}.md
 prompts/evaluation/p1_zero_shot.md … p5_self_refinement.md, p4_generated_knowledge_step1.md (P4 call 1)
 data/samples/                          # fictional JD + CV
@@ -67,14 +67,19 @@ tests/
 ```
 
 The dependency direction is one-way: `app.py` → `interview`/`evaluation`/`guards` →
-`llm_client` → `schemas`. `app.py` never calls `llm_client` directly, and nothing below
-`app.py` touches `st.session_state` (the two exceptions are deliberate: `llm_client.get_client`
-uses `@st.cache_resource`, and `interview.generate_followup` wraps `st.write_stream`).
+`llm_client` → `pricing`/`schemas`. `app.py` never calls `llm_client` directly (it imports
+constants only) and reads `pricing.get_supported_parameters` for the sidebar. Nothing below
+`app.py` touches Streamlit state, with three deliberate exceptions: `llm_client.get_client` uses
+`@st.cache_resource`, `interview.generate_followup` wraps `st.write_stream`, and
+`llm_client.record_usage` adds every call to `st.session_state["usage_total"]` (it also works in
+bare mode, so `eval/run_eval.py` is unaffected apart from a Streamlit warning).
 
 ### State machine
 
 All state lives in `st.session_state`, keyed as in `app.py:init_session_state`
-(`state`, `jd`, `cv`, `n_questions`, `plan`, `run_config`, `q_index`, `pending`, `results`):
+(`state`, `jd`, `cv`, `n_questions`, `plan`, `run_config`, `q_index`, `pending`, `results`, and
+the sidebar widget keys `model`, `reasoning_effort`, `max_tokens`, `temperature`, `top_p`,
+`eval_variant`; `usage_total` is created by `llm_client.record_usage` on the first call):
 
 ```text
 SETUP ──► BRIEF ──────────────► INTERVIEW ─────────────────────► REPORT
@@ -168,19 +173,19 @@ then cost. P2's few-shot examples must not come from the evaluation dataset (no 
 
 The happy path runs end to end. All five evaluation variants P1–P5 work (P4/P5 with two calls
 each), the full evaluation run is in `eval/results.csv`, and P1 zero-shot won and is
-`evaluation.DEFAULT_VARIANT`. Prices come from the OpenRouter models endpoint
-(`pricing.fetch_models`, `get_pricing`, `compute_cost`), every call returns its `Usage`, and the
-harness reports cost per evaluation. The opt-in debug log (`DEBUG_LOG=1`) is in `llm_client`.
+`evaluation.DEFAULT_VARIANT`. The developer sidebar (FR-10 to FR-13) is built: model, reasoning
+effort, max tokens, sampling sliders (disabled unless `pricing.get_supported_parameters` lists
+them), the P1–P5 selector and the session token/cost total from `llm_client.record_usage`.
+`app.current_run_config` snapshots the widgets via `interview.snapshot_run_config`; the analysis
+uses the current snapshot, `freeze_run_config` stores it at `BRIEF → INTERVIEW`. The opt-in debug
+log (`DEBUG_LOG=1`) is in `llm_client`. All tests pass, none are skipped;
+`tests/test_app_flow.py` drives the whole app through `streamlit.testing.v1.AppTest` with every
+LLM call mocked.
 
 Still open, each raising `NotImplementedError` or marked TODO — check these before assuming a
 feature works:
 
-- `llm_client.record_usage` and `pricing.get_supported_parameters` → no session cost total yet,
-  and the sampling controls cannot be enabled per model (FR-11 AC3, FR-13).
-- `app.render_sidebar` → FR-10/11/12/13 widgets are missing; `app.default_run_config` stands in
-  for the frozen sidebar snapshot.
 - `guards.classify_inputs` + `prompts/classifier.md` → L3 is not wired up.
-- `tests/test_run_config.py` (3 skipped) and one skipped state-transition test.
 - `docs/security_tests.md` has no rows and `docs/security_tests.xlsx` does not exist (FR-14 AC5).
 - `README.md`: the evaluation results and the settings experiment are written; screenshots,
   design decisions, security test summary, ChatGPT critique, parts of the known limitations,

@@ -24,8 +24,9 @@ security guard.
 **Current state.** The path `SETUP → BRIEF → INTERVIEW → REPORT` runs end to end. All five
 evaluation variants P1–P5 are implemented and were compared in a full evaluation run; P1
 (zero-shot) won and is the default. Prices come from the OpenRouter models endpoint, and the
-evaluation harness reports the cost per evaluation. The developer sidebar (including the variant
-selector and the cost display) and the L3 classifier are not built yet. The table below is derived from the code, not from the spec;
+evaluation harness reports the cost per evaluation. The developer sidebar holds model, reasoning
+effort, max tokens, the evaluation variant and the session's token and cost total; it is locked
+once the interview starts. The L3 classifier is not built yet. The table below is derived from the code, not from the spec;
 "partly" means that some acceptance criteria are met and others are still open.
 
 | ID | Requirement | Status | Notes |
@@ -39,10 +40,10 @@ selector and the cost display) and the L3 classifier are not built yet. The tabl
 | FR-07 | Adaptive follow-up | implemented | Multi-turn, streamed, after `gap` questions only |
 | FR-08 | Per-answer evaluation | implemented | All five variants P1–P5; P4 and P5 make two calls each. Default is P1, the winner of the evaluation run |
 | FR-09 | Report | implemented | Overall score computed in Python, no extra LLM call |
-| FR-10 | Separated developer settings | partly | The frozen `RunConfig` and the `BRIEF → INTERVIEW` freeze exist; `app.render_sidebar` renders a TODO placeholder, so no control is shown |
-| FR-11 | Model and parameter controls | planned | Model allow-list, reasoning effort and max tokens are plumbed through `llm_client` and `RunConfig`, but there are no widgets |
-| FR-12 | Prompt variant selector | planned | `EvalVariant` and the dispatch for all five variants exist; no selector yet, default P1 (winner of the evaluation run) |
-| FR-13 | Token usage and cost | partly | Prices from the OpenRouter models endpoint (`pricing.fetch_models`, `get_pricing`, `compute_cost`) and the token usage of every call work and feed the cost column of the evaluation harness; `llm_client.record_usage`, `pricing.get_supported_parameters` and the sidebar display are open |
+| FR-10 | Separated developer settings | implemented | All LLM controls in the sidebar; the main page works on defaults. At `BRIEF → INTERVIEW` the settings are frozen into a `RunConfig`, the controls are disabled and the lock notice is shown; the cost total stays visible |
+| FR-11 | Model and parameter controls | implemented | Model (the three allowed models), reasoning effort and max tokens; `temperature` and `top_p` are shown but disabled with "Not supported by this model", because none of the allowed models lists them in `supported_parameters` |
+| FR-12 | Prompt variant selector | implemented | Selector for P1–P5 in the sidebar; default P1, the winner of the evaluation run |
+| FR-13 | Token usage and cost | implemented | Every LLM call (follow-ups included) adds its prompt and completion tokens and its cost to a session total in the sidebar; prices come from the OpenRouter models endpoint, and "Cost: unavailable" is shown when they cannot be fetched |
 | FR-14 | Layered security guard | partly | L1, L2 and L4 are active; L3 `guards.classify_inputs` raises `NotImplementedError` (Should); AC5 is open: `docs/security_tests.md` contains no test cases yet |
 | FR-15 | Privacy handling | implemented | Notice shown, data kept in `st.session_state` only, key read from the environment; opt-in debug log for development only (AC5) |
 
@@ -83,10 +84,11 @@ uv run pytest                                      # whole suite
 uv run pytest tests/test_guards.py::test_name -v   # a single test
 ```
 
-Current result: **42 passed, 4 skipped** out of 46 collected. The four skips are the three
-`RunConfig` tests in `tests/test_run_config.py` and one state-transition test in
-`tests/test_interview.py`; all are marked `@pytest.mark.skip(reason="not implemented")` because
-the features they cover do not exist yet. All tests are deterministic and mock every LLM call.
+Current result: **50 passed**, none skipped. Besides the unit tests, `tests/test_app_flow.py`
+runs the whole app headless with Streamlit's `AppTest`: it clicks through
+`SETUP → BRIEF → INTERVIEW → REPORT` and checks that every stored evaluation carries the
+`RunConfig` frozen at the start of the interview. All tests are deterministic and mock every LLM
+call.
 
 The prompt-variant evaluation harness scores the evaluation variants against the reference
 answers in `eval/dataset.json` (see *Prompt comparison results*):
@@ -132,10 +134,14 @@ follow-up, the score, the STAR breakdown, strengths, improvements and a collapsi
 example answer. A caption names the evaluation variant and the model that produced the scores.
 "Start over" returns to `SETUP` and clears all data.
 
-Because the developer sidebar is still a placeholder (FR-10 to FR-13), every run currently uses
-the fixed defaults from `app.default_run_config`: model `openai/gpt-5-mini`, reasoning effort
-`low`, `max_tokens` 4,000, evaluation variant P1 (zero-shot), the winner of the evaluation run
-(see *Prompt comparison results*).
+**Developer settings (sidebar).** The main page works without ever opening the sidebar. The
+sidebar holds every LLM-related control: model (`openai/gpt-5-mini` by default), reasoning effort
+(`low`), max tokens (4,000) and the evaluation prompt (P1 zero-shot, the winner of the evaluation
+run, see *Prompt comparison results*). `temperature` and `top_p` are shown but disabled with the
+hint "Not supported by this model": the OpenRouter models endpoint lists neither parameter for
+any of the three allowed models, and OpenRouter would silently ignore them. When the interview
+starts, the settings are frozen and the controls are locked until *Start over*. Below the
+controls, the sidebar shows the tokens and the cost of all LLM calls of the session.
 
 ## Research and product idea
 
@@ -199,21 +205,23 @@ read as the follow-up answer before the turn is evaluated and appended to the re
 | File | Responsibility |
 |---|---|
 | `app.py` | Streamlit UI and the state machine, nothing else. Contains no prompt text (NFR-05) |
-| `src/job_interview_coaching_app/llm_client.py` | OpenRouter client, structured and streamed calls, prompt loading, error translation, usage extraction, opt-in debug log |
+| `src/job_interview_coaching_app/llm_client.py` | OpenRouter client, structured and streamed calls, prompt loading, error translation, usage extraction and the session's token and cost total, opt-in debug log |
 | `src/job_interview_coaching_app/schemas.py` | Pydantic models `InterviewPlan`, `AnswerEvaluation`, `GuardVerdict`; the frozen `RunConfig` and `Usage` |
-| `src/job_interview_coaching_app/interview.py` | `State` enum, `Turn`/`TurnResult`, question-mix rule, plan validation, interviewer message builder, score aggregation |
+| `src/job_interview_coaching_app/interview.py` | `State` enum, `Turn`/`TurnResult`, question-mix rule, plan validation, interviewer message builder, `RunConfig` snapshot, score aggregation |
 | `src/job_interview_coaching_app/evaluation.py` | The five evaluation variants P1–P5 and their dispatch |
 | `src/job_interview_coaching_app/guards.py` | Security layers L1–L4 |
-| `src/job_interview_coaching_app/pricing.py` | OpenRouter models endpoint: prices and cost per call; supported parameters not implemented yet |
+| `src/job_interview_coaching_app/pricing.py` | OpenRouter models endpoint: prices, cost per call and the supported parameters of each model |
 | `prompts/` | All prompt text as Markdown: `analysis.md`, `interviewer.md`, `classifier.md`, `evaluation/p1_zero_shot.md` … `p5_self_refinement.md`, plus `evaluation/p4_generated_knowledge_step1.md` for the first call of P4 |
 | `data/samples/` | Fictional JD and CV |
 | `eval/` | `dataset.json` with the reference answers, the `run_eval.py` harness, `results.csv` (evaluation run) and `effort_minimal.csv` / `effort_medium.csv` (settings experiment) |
 | `docs/` | `security_tests.md` |
-| `tests/` | `test_guards.py`, `test_interview.py`, `test_pricing.py`, `test_debug_log.py`, `test_run_config.py` |
+| `tests/` | `test_guards.py`, `test_interview.py`, `test_pricing.py`, `test_usage_total.py`, `test_debug_log.py`, `test_run_config.py`, `test_app_flow.py` (whole app via `AppTest`) |
 
 The dependency direction is one-way: `app.py` → `interview` / `evaluation` / `guards` →
-`llm_client` → `schemas`. `app.py` never calls `llm_client` directly, and the modules below
-`app.py` do not touch `st.session_state`.
+`llm_client` → `pricing` / `schemas`. `app.py` never calls `llm_client` directly; it reads the
+supported parameters from `pricing` for the sidebar. Below `app.py`, `st.session_state` is touched
+in one place only: `llm_client.record_usage` adds every call to the session total, so that no
+caller has to pass token counts up to the UI.
 
 All prompt files except `classifier.md` are written; `classifier.md` is still a TODO header.
 `docs/security_tests.xlsx` does not exist yet.

@@ -103,4 +103,3 @@ def test_all_evaluations_of_one_run_share_the_same_run_config(app: AppTest) -> N
     assert len(results) == 3
     assert all(result.run_config == frozen for result in results)
     assert frozen.model == "openai/gpt-5-mini"
-    
