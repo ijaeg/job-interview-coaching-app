@@ -97,7 +97,10 @@ def get_supported_parameters(model: str) -> frozenset[str]:
     Returns:
         The supported parameter names; empty when the catalogue is unavailable.
     """
-    raise NotImplementedError
+    entry = fetch_models().get(model)
+    if entry is None:
+        return frozenset()
+    return frozenset(entry.get("supported_parameters") or [])
 
 
 def compute_cost(usage: Usage, pricing: ModelPricing | None) -> float | None:

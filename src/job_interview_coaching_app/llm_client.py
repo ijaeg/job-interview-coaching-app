@@ -29,6 +29,7 @@ from dotenv import load_dotenv
 from openai import OpenAI
 from pydantic import BaseModel, ValidationError
 
+from job_interview_coaching_app.pricing import compute_cost, get_pricing
 from job_interview_coaching_app.schemas import RunConfig, Usage
 
 #: Directory holding the prompt markdown files, resolved from the repository root.
@@ -54,6 +55,9 @@ DEBUG_LOG_ENV: str = "DEBUG_LOG"
 
 #: JSONL file of the debug log; ``logs/`` is listed in ``.gitignore`` (FR-15 AC5).
 DEBUG_LOG_PATH: Path = Path(__file__).resolve().parents[2] / "logs" / "llm_calls.jsonl"
+
+#: Session-state key of the running token and cost total shown in the sidebar (FR-13 AC1).
+USAGE_TOTAL_KEY: str = "usage_total"
 
 TModel = TypeVar("TModel", bound=BaseModel)
 
@@ -192,6 +196,7 @@ def call_structured(
         raise LLMError("The model returned no usable answer. Please try again.")
 
     usage = extract_usage(response)
+    record_usage(usage, run_config)
     write_debug_log(
         {
             "kind": "structured",
@@ -233,6 +238,7 @@ def stream_text(
         "messages": messages,
         "max_tokens": run_config.max_tokens,
         "stream": True,
+        "stream_options": {"include_usage": True},
         "extra_body": {"reasoning": {"effort": run_config.reasoning_effort}},
     }
     if run_config.temperature is not None:
@@ -265,6 +271,8 @@ def stream_text(
     if not pieces:
         # NFR-03: reasoning tokens used up the whole budget before any text arrived.
         raise LLMError("The interviewer returned no text - increase max tokens in the developer settings.")
+    if usage is not None:
+        record_usage(usage, run_config)
     write_debug_log(
         {
             "kind": "stream",
@@ -289,7 +297,16 @@ def record_usage(usage: Usage, run_config: RunConfig) -> None:
         usage: Token counts of the completed call.
         run_config: Frozen settings, needed to price the correct model.
     """
-    raise NotImplementedError
+    total = st.session_state.setdefault(
+        USAGE_TOTAL_KEY, {"prompt_tokens": 0, "completion_tokens": 0, "cost_usd": 0.0}
+    )
+    total["prompt_tokens"] += usage.prompt_tokens
+    total["completion_tokens"] += usage.completion_tokens
+    cost = compute_cost(usage, get_pricing(run_config.model))
+    if cost is None or total["cost_usd"] is None:
+        total["cost_usd"] = None  # one unpriced call makes the total unknown (FR-13 AC3)
+    else:
+        total["cost_usd"] += cost
 
 
 def extract_usage(response: Any) -> Usage:
