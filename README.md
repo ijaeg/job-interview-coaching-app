@@ -26,7 +26,8 @@ evaluation variants P1–P5 are implemented and were compared in a full evaluati
 (zero-shot) won and is the default. Prices come from the OpenRouter models endpoint, and the
 evaluation harness reports the cost per evaluation. The developer sidebar holds model, reasoning
 effort, max tokens, the evaluation variant and the session's token and cost total; it is locked
-once the interview starts. The L3 classifier is not built yet. The table below is derived from the code, not from the spec;
+once the interview starts. Before the analysis, a cheap classifier call checks that the inputs
+really are a job description and a CV. The table below is derived from the code, not from the spec;
 "partly" means that some acceptance criteria are met and others are still open.
 
 | ID | Requirement | Status | Notes |
@@ -44,7 +45,7 @@ once the interview starts. The L3 classifier is not built yet. The table below i
 | FR-11 | Model and parameter controls | implemented | Model (the three allowed models), reasoning effort and max tokens; `temperature` and `top_p` are shown but disabled with "Not supported by this model", because none of the allowed models lists them in `supported_parameters` |
 | FR-12 | Prompt variant selector | implemented | Selector for P1–P5 in the sidebar; default P1, the winner of the evaluation run |
 | FR-13 | Token usage and cost | implemented | Every LLM call (follow-ups included) adds its prompt and completion tokens and its cost to a session total in the sidebar; prices come from the OpenRouter models endpoint, and "Cost: unavailable" is shown when they cannot be fetched |
-| FR-14 | Layered security guard | partly | L1, L2 and L4 are active; L3 `guards.classify_inputs` raises `NotImplementedError` (Should); AC5 is open: `docs/security_tests.md` contains no test cases yet |
+| FR-14 | Layered security guard | partly | All four layers L1–L4 are active; the L3 classifier rejects documents that are not a job ad or a CV or that contain instructions to an AI, and the analysis goes ahead if the classifier call fails; AC5 is open: `docs/security_tests.md` contains no test cases yet |
 | FR-15 | Privacy handling | implemented | Notice shown, data kept in `st.session_state` only, key read from the environment; opt-in debug log for development only (AC5) |
 
 ## Screenshots
@@ -84,7 +85,7 @@ uv run pytest                                      # whole suite
 uv run pytest tests/test_guards.py::test_name -v   # a single test
 ```
 
-Current result: **50 passed**, none skipped. Besides the unit tests, `tests/test_app_flow.py`
+Current result: **51 passed**, none skipped. Besides the unit tests, `tests/test_app_flow.py`
 runs the whole app headless with Streamlit's `AppTest`: it clicks through
 `SETUP → BRIEF → INTERVIEW → REPORT` and checks that every stored evaluation carries the
 `RunConfig` frozen at the start of the interview. All tests are deterministic and mock every LLM
@@ -111,8 +112,9 @@ No linter, formatter, type checker or CI is configured.
 tried without personal data. The slider sets the number of main questions (3 to 8, default 3).
 "Analyse" stays disabled until both fields contain at least 200 characters. A privacy notice sits
 above the inputs. Before the analysis call, the JD and the CV pass the length check and the
-injection heuristics; a rejection names the limit or asks the user to remove the instruction-like
-text.
+injection heuristics, and a cheap classifier call checks that the two texts really are a job
+advertisement and a CV; a rejection names the limit, asks the user to remove the instruction-like
+text, or says which field does not contain what it should.
 
 **2 — BRIEF.** The preparation brief shows a one-sentence role summary, the strengths, and the
 gaps with their severity and the JD requirement each relates to, plus the number of planned
@@ -223,7 +225,6 @@ supported parameters from `pricing` for the sidebar. Below `app.py`, `st.session
 in one place only: `llm_client.record_usage` adds every call to the session total, so that no
 caller has to pass token counts up to the UI.
 
-All prompt files except `classifier.md` are written; `classifier.md` is still a TODO header.
 `docs/security_tests.xlsx` does not exist yet.
 
 ### The LLM calls
@@ -239,7 +240,7 @@ tokens count against it.
 | Analysis and question planning | `system` + `user` | `InterviewPlan` JSON, schema-validated | implemented |
 | Interviewer follow-up | `system`, then alternating `assistant` and `user` — the only multi-turn call | Free text, streamed with `st.write_stream` | implemented |
 | Answer evaluation | `system` + `user`; two calls for P4 and P5 | `AnswerEvaluation` JSON, schema-validated (P4's first call: `ReferenceKnowledge` JSON) | implemented, P1–P5 |
-| Guard classifier (L3) | `system` + `user`, on `openai/gpt-5-nano` | `GuardVerdict` JSON | planned |
+| Guard classifier (L3) | `system` + `user`, always on `openai/gpt-5-nano` with reasoning effort `minimal` | `GuardVerdict` JSON | implemented |
 
 In `AnswerEvaluation` the field `reasoning` is declared before `score`: fields are generated in
 declaration order, so the model reasons before it commits to a number.
@@ -256,7 +257,7 @@ score and that question is left out of the mean.
 |---|---|---|
 | L1 | Length and non-empty checks: JD ≤ 8,000, CV ≤ 12,000, answers ≤ 3,000 characters | implemented |
 | L2 | Regex heuristics against instruction-like text in JD, CV and every answer | implemented |
-| L3 | A cheap `gpt-5-nano` classifier deciding whether the inputs really are a JD and a CV | planned |
+| L3 | A cheap `gpt-5-nano` classifier deciding whether the inputs really are a JD and a CV and whether either contains instructions to an AI; a failed call does not block the analysis | implemented |
 | L4 | Untrusted text wrapped in delimiters such as `<job_description>…</job_description>`, system prompts declaring that content is data and never instructions, schema validation and a score range check | implemented |
 
 The L2 patterns are deliberately narrow, because an ordinary CV may legitimately mention terms
@@ -417,7 +418,9 @@ It was planned and built with AI assistance, with a clear split of responsibilit
   the evaluation dataset); their evaluations were written by the author.
 - **Claude Code CLI** – generated the initial scaffolding (folder structure, function stubs and
   test skeletons) and drafted `CLAUDE.md` and this README.
-- **The author** – owns the product idea and every decision on scope and design, wrote and
-  iterated the prompts based on review feedback, compiled the evaluation dataset, implemented
+- **The author** – owns the product idea and every decision on scope and design, wrote the
+  analysis, interviewer and P1 prompts and iterated them based on review feedback, adapted and
+  reviewed the other prompts (parts of which were proposed by Claude), compiled the evaluation
+  dataset, implemented
   the code in VS Code, ran all tests, and made every commit. AI-proposed snippets were reviewed
   and adapted before they were committed.

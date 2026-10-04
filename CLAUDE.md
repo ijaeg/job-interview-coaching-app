@@ -30,7 +30,7 @@ The project is **uv-only**. Never invoke bare `pip` or `python`.
 uv sync                               # install/lock deps (build backend: uv_build, src layout)
 uv add <pkg>                          # add a dependency
 uv run streamlit run app.py           # run the app
-uv run pytest                         # tests (NFR-06) — currently 50 pass, none skipped
+uv run pytest                         # tests (NFR-06) — currently 51 pass, none skipped
 uv run pytest tests/test_guards.py::test_name -v   # single test
 uv run python eval/run_eval.py        # full evaluation run (§7.2): 5 variants x 8 answers x 2 runs -> eval/results.csv
 uv run python eval/run_eval.py --variants p1_zero_shot p3_chain_of_thought --runs 2
@@ -98,7 +98,10 @@ read as the follow-up answer before the turn is evaluated and appended to `resul
 Each demonstrates a different combination of roles and output types (§5.1):
 
 1. **Guard classifier (L3, Should)** — cheap `gpt-5-nano` call, `prompts/classifier.md` →
-   `GuardVerdict` JSON. Pinned to `CLASSIFIER_MODEL` regardless of the selected model.
+   `GuardVerdict` JSON. Pinned to `CLASSIFIER_MODEL` with effort `minimal` regardless of the
+   selected settings (`dataclasses.replace` on the `RunConfig`). `guards.verdict_message` turns
+   the verdict into the blocking message; an `LLMError` here is swallowed so the analysis still
+   runs.
 2. **Analysis + question planning** — one call, `prompts/analysis.md` → `InterviewPlan` JSON
    (role summary, 2–5 strengths, 2–5 `Gap`s with severity, exactly *n* `Question`s typed
    `opener` / `gap` / `reverse`). Question-mix rule: Q1 is the `opener`, middle questions are
@@ -178,14 +181,13 @@ effort, max tokens, sampling sliders (disabled unless `pricing.get_supported_par
 them), the P1–P5 selector and the session token/cost total from `llm_client.record_usage`.
 `app.current_run_config` snapshots the widgets via `interview.snapshot_run_config`; the analysis
 uses the current snapshot, `freeze_run_config` stores it at `BRIEF → INTERVIEW`. The opt-in debug
-log (`DEBUG_LOG=1`) is in `llm_client`. All tests pass, none are skipped;
+log (`DEBUG_LOG=1`) is in `llm_client`. The L3 classifier (`guards.classify_inputs`,
+`prompts/classifier.md`) runs before the analysis. All tests pass, none are skipped;
 `tests/test_app_flow.py` drives the whole app through `streamlit.testing.v1.AppTest` with every
 LLM call mocked.
 
-Still open, each raising `NotImplementedError` or marked TODO — check these before assuming a
-feature works:
+No code stub is left (`NotImplementedError` no longer occurs). Still open:
 
-- `guards.classify_inputs` + `prompts/classifier.md` → L3 is not wired up.
 - `docs/security_tests.md` has no rows and `docs/security_tests.xlsx` does not exist (FR-14 AC5).
 - `README.md`: the evaluation results and the settings experiment are written; screenshots,
   design decisions, security test summary, ChatGPT critique, parts of the known limitations,
