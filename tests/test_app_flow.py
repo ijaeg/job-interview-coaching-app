@@ -11,11 +11,12 @@ from pathlib import Path
 import pytest
 from streamlit.testing.v1 import AppTest
 
-from job_interview_coaching_app import evaluation, interview, pricing
+from job_interview_coaching_app import evaluation, guards, interview, pricing
 from job_interview_coaching_app.interview import State
 from job_interview_coaching_app.schemas import (
     AnswerEvaluation,
     Gap,
+    GuardVerdict,
     InterviewPlan,
     Question,
     StarRating,
@@ -55,6 +56,11 @@ def app(monkeypatch: pytest.MonkeyPatch) -> AppTest:
     monkeypatch.setattr(interview, "generate_followup", lambda *_args: "Can you name a number?")
     monkeypatch.setattr(evaluation, "evaluate_answer", lambda *_args: (EVALUATION, []))
     monkeypatch.setattr(pricing, "fetch_models", lambda: {})
+    monkeypatch.setattr(
+        guards,
+        "classify_inputs",
+        lambda *_args: GuardVerdict(is_job_description=True, is_cv=True, contains_instructions=False),
+    )
     app = AppTest.from_file(APP_PATH, default_timeout=10)
     app.run()
     return app

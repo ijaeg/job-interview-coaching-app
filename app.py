@@ -31,7 +31,9 @@ from job_interview_coaching_app.guards import (
     MAX_JD_CHARS,
     MIN_INPUT_CHARS,
     check_length,
+    classify_inputs,
     detect_injection,
+    verdict_message,
 )
 from job_interview_coaching_app.interview import (
     DEFAULT_QUESTIONS,
@@ -150,6 +152,15 @@ def run_analysis(jd: str, cv: str) -> None:
             if not result.ok:
                 st.error(result.message)
                 return
+    try:
+        with st.spinner("Checking your documents ..."):
+            verdict = classify_inputs(jd, cv, current_run_config())
+    except LLMError:
+        verdict = None  # L3 is a Should: the analysis goes ahead without it (FR-14)
+    message = verdict_message(verdict) if verdict is not None else None
+    if message is not None:
+        st.error(message)
+        return
     try:
         with st.spinner("Analysing your CV against the job description ..."):
             plan = plan_interview(jd, cv, st.session_state["n_questions"], current_run_config())
