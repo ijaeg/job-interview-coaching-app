@@ -114,9 +114,3 @@ def test_aggregate_scores_uses_answered_questions_only() -> None:
     assert aggregate_scores([make_evaluation(4), make_evaluation(2)]) == 3.0
     with pytest.raises(ValueError):
         aggregate_scores([])
-
-
-@pytest.mark.skip(reason="not implemented")
-def test_state_transitions_follow_the_state_machine() -> None:
-    """SETUP -> BRIEF -> INTERVIEW -> REPORT, and "Start over" clears back to SETUP (§3)."""
-    raise NotImplementedError

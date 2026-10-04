@@ -110,7 +110,8 @@ def init_session_state() -> None:
         "max_tokens": DEFAULT_MAX_TOKENS,
         "temperature": 1.0,
         "top_p": 1.0,
-        "eval_variant": DEFAULT_VARIANT.value,    }
+        "eval_variant": DEFAULT_VARIANT.value,
+    }
     for key, value in defaults.items():
         st.session_state.setdefault(key, value)
 

@@ -44,9 +44,3 @@ def test_unsupported_sampling_parameters_are_not_sent() -> None:
     run_config = snapshot_run_config(SETTINGS, frozenset({"temperature"}))
     assert run_config.temperature == 0.7
     assert run_config.top_p is None
-
-
-@pytest.mark.skip(reason="not implemented")
-def test_all_evaluations_of_one_run_share_the_same_run_config() -> None:
-    """Every stored AnswerEvaluation carries the same RunConfig (FR-10 AC5)."""
-    raise NotImplementedError
