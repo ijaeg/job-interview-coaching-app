@@ -15,8 +15,10 @@ the unit tests cover with mocked LLM calls (NFR-06).
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 from enum import Enum
+from typing import Any
 
 import streamlit as st
 
@@ -218,6 +220,32 @@ def generate_followup(messages: list[dict[str, str]], run_config: RunConfig) -> 
     """
     followup = st.write_stream(stream_text(messages, run_config))
     return str(followup).strip()
+
+
+def snapshot_run_config(
+    settings: Mapping[str, Any], supported_parameters: frozenset[str]
+) -> RunConfig:
+    """Copy the developer settings into an immutable ``RunConfig`` (FR-10 AC3).
+
+    Sampling parameters the model does not list in ``supported_parameters`` are
+    stored as ``None`` and therefore never sent (FR-11 AC3).
+
+    Args:
+        settings: The current widget values, e.g. ``st.session_state``.
+        supported_parameters: What the selected model honours, from
+            ``pricing.get_supported_parameters``.
+
+    Returns:
+        The frozen snapshot every LLM call of the run reads its settings from.
+    """
+    return RunConfig(
+        model=settings["model"],
+        reasoning_effort=settings["reasoning_effort"],
+        max_tokens=int(settings["max_tokens"]),
+        temperature=settings["temperature"] if "temperature" in supported_parameters else None,
+        top_p=settings["top_p"] if "top_p" in supported_parameters else None,
+        eval_variant=settings["eval_variant"],
+    )
 
 
 def aggregate_scores(evaluations: list[AnswerEvaluation]) -> float:

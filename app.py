@@ -20,14 +20,20 @@ from pathlib import Path
 
 import streamlit as st
 
-from job_interview_coaching_app.evaluation import DEFAULT_VARIANT, evaluate_answer
+from job_interview_coaching_app.evaluation import (
+    DEFAULT_VARIANT,
+    EvalVariant,
+    evaluate_answer,
+)
 from job_interview_coaching_app.guards import (
     MAX_ANSWER_CHARS,
     MAX_CV_CHARS,
     MAX_JD_CHARS,
     MIN_INPUT_CHARS,
     check_length,
+    classify_inputs,
     detect_injection,
+    verdict_message,
 )
 from job_interview_coaching_app.interview import (
     DEFAULT_QUESTIONS,
@@ -40,12 +46,16 @@ from job_interview_coaching_app.interview import (
     build_interviewer_messages,
     generate_followup,
     plan_interview,
+    snapshot_run_config,
 )
 from job_interview_coaching_app.llm_client import (
+    ALLOWED_MODELS,
     DEFAULT_MAX_TOKENS,
     DEFAULT_MODEL,
+    USAGE_TOTAL_KEY,
     LLMError,
 )
+from job_interview_coaching_app.pricing import get_supported_parameters
 from job_interview_coaching_app.schemas import InterviewPlan, Question, RunConfig
 
 PAGE_TITLE = "Gap-Focused Interview Coach"
@@ -58,6 +68,26 @@ PRIVACY_NOTICE = (
     "Your texts are sent to an LLM provider via OpenRouter for processing. "
     "They are not stored by this app."
 )
+
+#: Reasoning-effort levels offered in the sidebar; "low" won the settings experiment (FR-11 AC2, §7.3).
+REASONING_EFFORTS: tuple[str, ...] = ("minimal", "low", "medium", "high")
+DEFAULT_REASONING_EFFORT: str = "low"
+
+#: Bounds of the max-tokens field; reasoning tokens count against it (FR-11 AC2, NFR-03).
+MIN_MAX_TOKENS: int = 1000
+MAX_MAX_TOKENS: int = 16000
+
+#: Labels of the evaluation prompt variants in the selector (FR-12).
+VARIANT_LABELS: dict[str, str] = {
+    "p1_zero_shot": "P1 zero-shot (winner)",
+    "p2_few_shot": "P2 few-shot",
+    "p3_chain_of_thought": "P3 chain-of-thought",
+    "p4_generated_knowledge": "P4 generated knowledge",
+    "p5_self_refinement": "P5 self-refinement",
+}
+
+#: Shown while the settings are frozen (FR-10 AC4, verbatim).
+LOCK_NOTICE: str = "Settings are locked during the interview. Use *Start over* to change them."
 
 
 def init_session_state() -> None:
@@ -76,21 +106,22 @@ def init_session_state() -> None:
         "q_index": 0,
         "pending": None,
         "results": [],
+        # Developer settings, read by the sidebar widgets via their keys (FR-10 to FR-12).
+        "model": DEFAULT_MODEL,
+        "reasoning_effort": DEFAULT_REASONING_EFFORT,
+        "max_tokens": DEFAULT_MAX_TOKENS,
+        "temperature": 1.0,
+        "top_p": 1.0,
+        "eval_variant": DEFAULT_VARIANT.value,
     }
     for key, value in defaults.items():
         st.session_state.setdefault(key, value)
 
 
-def default_run_config() -> RunConfig:
-    """Provisional settings until the developer sidebar exists (FR-10 to FR-12 follow later)."""
-    return RunConfig(
-        model=DEFAULT_MODEL,
-        reasoning_effort="low",
-        max_tokens=DEFAULT_MAX_TOKENS,
-        temperature=None,
-        top_p=None,
-        eval_variant=DEFAULT_VARIANT.value,
-    )
+def current_run_config() -> RunConfig:
+    """Snapshot of the developer settings as they are right now (FR-10 AC3, FR-11 AC3)."""
+    model = st.session_state["model"]
+    return snapshot_run_config(st.session_state, get_supported_parameters(model))
 
 
 def load_sample_data() -> None:
@@ -122,8 +153,17 @@ def run_analysis(jd: str, cv: str) -> None:
                 st.error(result.message)
                 return
     try:
+        with st.spinner("Checking your documents ..."):
+            verdict = classify_inputs(jd, cv, current_run_config())
+    except LLMError:
+        verdict = None  # L3 is a Should: the analysis goes ahead without it (FR-14)
+    message = verdict_message(verdict) if verdict is not None else None
+    if message is not None:
+        st.error(message)
+        return
+    try:
         with st.spinner("Analysing your CV against the job description ..."):
-            plan = plan_interview(jd, cv, st.session_state["n_questions"], default_run_config())
+            plan = plan_interview(jd, cv, st.session_state["n_questions"], current_run_config())
     except LLMError as err:
         st.error(str(err))
         return
@@ -133,7 +173,7 @@ def run_analysis(jd: str, cv: str) -> None:
 
 
 def render_sidebar() -> None:
-    """Render the collapsible "Developer settings" section.
+    """Render the "Developer settings" in the collapsible sidebar.
 
     Holds every LLM control so that the main page stays free of LLM terminology and
     works on defaults (FR-10 AC1, AC2): model selector (FR-11 AC1), reasoning effort
@@ -143,12 +183,44 @@ def render_sidebar() -> None:
 
     During ``INTERVIEW`` and ``REPORT`` the controls are ``disabled=True`` and the
     lock notice is shown, while the cost display stays active (FR-10 AC4).
-
-    TODO: build the widgets and the disabled/locked behaviour.
     """
+    locked = st.session_state["state"] in (State.INTERVIEW, State.REPORT)
+    supported = get_supported_parameters(st.session_state["model"])
     with st.sidebar:
         st.header("Developer settings")
-        st.caption("TODO: FR-10 controls, FR-11 model and parameters, FR-12 variant, FR-13 cost.")
+        if locked:
+            st.info(LOCK_NOTICE)
+        st.selectbox("Model", ALLOWED_MODELS, key="model", disabled=locked)
+        st.selectbox("Reasoning effort", REASONING_EFFORTS, key="reasoning_effort", disabled=locked)
+        st.number_input(
+            "Max tokens", MIN_MAX_TOKENS, MAX_MAX_TOKENS, step=500, key="max_tokens", disabled=locked
+        )
+        for name, upper in (("temperature", 2.0), ("top_p", 1.0)):
+            unsupported = name not in supported
+            st.slider(name, 0.0, upper, step=0.05, key=name, disabled=locked or unsupported)
+            if unsupported:
+                st.caption("Not supported by this model")
+        st.selectbox(
+            "Evaluation prompt",
+            [variant.value for variant in EvalVariant],
+            format_func=VARIANT_LABELS.get,
+            key="eval_variant",
+            disabled=locked,
+        )
+        st.divider()
+        render_usage_total()
+
+
+def render_usage_total() -> None:
+    """Show the session's token and cost total; stays active while locked (FR-13, FR-10 AC4)."""
+    total = st.session_state.get(USAGE_TOTAL_KEY)
+    st.subheader("Usage this session")
+    if total is None:
+        st.caption("No LLM calls yet.")
+        return
+    st.caption(f"Tokens: {total['prompt_tokens']:,} prompt · {total['completion_tokens']:,} completion")
+    cost = total["cost_usd"]
+    st.caption("Cost: unavailable" if cost is None else f"Cost: ${cost:.4f}")
 
 
 def freeze_run_config() -> None:
@@ -159,7 +231,7 @@ def freeze_run_config() -> None:
     ``st.session_state``, never from the widgets (FR-10 AC3), and each stored
     ``AnswerEvaluation`` keeps the config it was produced with (FR-10 AC5).
     """
-    st.session_state["run_config"] = default_run_config()
+    st.session_state["run_config"] = current_run_config()
 
 
 def start_interview() -> None:

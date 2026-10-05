@@ -14,8 +14,10 @@ from job_interview_coaching_app.guards import (
     MAX_JD_CHARS,
     check_length,
     detect_injection,
+    verdict_message,
     wrap_untrusted,
 )
+from job_interview_coaching_app.schemas import GuardVerdict
 
 #: One attack per family in ``INJECTION_PATTERNS``; "A7" is the injection answer from
 #: ``eval/dataset.json`` verbatim (FR-14 AC3).
@@ -107,3 +109,13 @@ def test_detect_injection_passes_clean_text(text: str) -> None:
 def test_wrap_untrusted_wraps_text_in_delimiters() -> None:
     """L4 wraps untrusted text as ``<tag>...</tag>`` (FR-14 L4)."""
     assert wrap_untrusted("Hello", "cv") == "<cv>\nHello\n</cv>"
+
+
+def test_verdict_message_blocks_injection_and_wrong_documents() -> None:
+    """L3: instructions block with the AC1 message, a recipe as JD is rejected (FR-14 AC1, AC2)."""
+    ok = GuardVerdict(is_job_description=True, is_cv=True, contains_instructions=False)
+    assert verdict_message(ok) is None
+    injected = GuardVerdict(is_job_description=True, is_cv=True, contains_instructions=True)
+    assert verdict_message(injected) == INJECTION_MESSAGE
+    recipe = GuardVerdict(is_job_description=False, is_cv=True, contains_instructions=False)
+    assert "job description" in verdict_message(recipe)

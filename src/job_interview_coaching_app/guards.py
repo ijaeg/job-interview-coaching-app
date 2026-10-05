@@ -18,8 +18,9 @@ adversarial cases are documented in ``docs/security_tests.md`` (FR-14 AC5).
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
+from job_interview_coaching_app.llm_client import call_structured, load_prompt
 from job_interview_coaching_app.schemas import GuardVerdict, RunConfig
 
 #: L1 character limits (FR-01 AC3, FR-06 AC3).
@@ -185,7 +186,36 @@ def classify_inputs(jd: str, cv: str, run_config: RunConfig) -> GuardVerdict:
     Raises:
         LLMError: On API failure or invalid JSON after the retry (NFR-02).
     """
-    raise NotImplementedError
+    messages = [
+        {"role": "system", "content": load_prompt("classifier.md")},
+        {
+            "role": "user",
+            "content": f"Text A:\n{wrap_untrusted(jd, 'text_a')}\n\nText B:\n{wrap_untrusted(cv, 'text_b')}",
+        },
+    ]
+    classifier_config = replace(
+        run_config, model=CLASSIFIER_MODEL, reasoning_effort="minimal", temperature=None, top_p=None
+    )
+    verdict, _usage = call_structured(messages, GuardVerdict, classifier_config)
+    return verdict
+
+
+def verdict_message(verdict: GuardVerdict) -> str | None:
+    """Turn the L3 verdict into the message that blocks the analysis, if any.
+
+    Args:
+        verdict: The classifier's answer.
+
+    Returns:
+        The user-facing message (FR-14 AC1, AC2), or ``None`` when both texts pass.
+    """
+    if verdict.contains_instructions:
+        return INJECTION_MESSAGE
+    if not verdict.is_job_description:
+        return "The job description field does not look like a job advertisement. Please paste the job description."
+    if not verdict.is_cv:
+        return "The CV field does not look like a CV. Please paste your CV."
+    return None
 
 
 def wrap_untrusted(text: str, tag: str) -> str:
