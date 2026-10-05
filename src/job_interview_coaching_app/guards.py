@@ -97,8 +97,12 @@ INJECTION_PATTERNS: tuple[re.Pattern[str], ...] = (
         re.IGNORECASE,
     ),
     re.compile(r"\[\s*/?\s*(?:INST|SYS)\s*\]", re.IGNORECASE),
-    # Escaping the L4 delimiters this app puts around untrusted text.
-    re.compile(r"</?\s*(?:job_description|cv|answer|question)\s*>", re.IGNORECASE),
+    # Escaping the L4 delimiters this app puts around untrusted text: every tag passed to
+    # ``wrap_untrusted`` anywhere in the package must be listed here.
+    re.compile(
+        r"</?\s*(?:job_description|cv|answer|question|text_a|text_b|reference|draft_evaluation)\s*>",
+        re.IGNORECASE,
+    ),
     # Jailbreak jargon.
     re.compile(
         r"\b(?:jailbreak|dan\s+mode|do\s+anything\s+now)\b",
