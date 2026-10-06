@@ -27,8 +27,7 @@ evaluation variants P1–P5 are implemented and were compared in a full evaluati
 evaluation harness reports the cost per evaluation. The developer sidebar holds model, reasoning
 effort, max tokens, the evaluation variant and the session's token and cost total; it is locked
 once the interview starts. Before the analysis, a cheap classifier call checks that the inputs
-really are a job description and a CV. The table below is derived from the code, not from the spec;
-"partly" means that some acceptance criteria are met and others are still open.
+really are a job description and a CV. The table below is derived from the code, not from the spec.
 
 | ID | Requirement | Status | Notes |
 |---|---|---|---|
@@ -45,12 +44,37 @@ really are a job description and a CV. The table below is derived from the code,
 | FR-11 | Model and parameter controls | implemented | Model (the three allowed models), reasoning effort and max tokens; `temperature` and `top_p` are shown but disabled with "Not supported by this model", because none of the allowed models lists them in `supported_parameters` |
 | FR-12 | Prompt variant selector | implemented | Selector for P1–P5 in the sidebar; default P1, the winner of the evaluation run |
 | FR-13 | Token usage and cost | implemented | Every LLM call (follow-ups included) adds its prompt and completion tokens and its cost to a session total in the sidebar; prices come from the OpenRouter models endpoint, and "Cost: unavailable" is shown when they cannot be fetched |
-| FR-14 | Layered security guard | partly | All four layers L1–L4 are active; the L3 classifier rejects documents that are not a job ad or a CV or that contain instructions to an AI, and the analysis goes ahead if the classifier call fails; AC5 is open: `docs/security_tests.md` contains no test cases yet |
+| FR-14 | Layered security guard | implemented | All four layers L1–L4 are active; the L3 classifier rejects documents that are not a job ad or a CV or that contain instructions to an AI, and the analysis goes ahead if the classifier call fails; 14 security test cases in `docs/security_tests.md` and `.xlsx` (AC5) |
 | FR-15 | Privacy handling | implemented | Notice shown, data kept in `st.session_state` only, key read from the environment; opt-in debug log for development only (AC5) |
 
 ## Screenshots
 
-TBD — screenshots of the four states `SETUP`, `BRIEF`, `INTERVIEW` and `REPORT`.
+One run with the fictional sample data and three questions.
+
+**1 — SETUP.** Job description and CV (here the sample data), the number of questions, the privacy
+notice and a one-sentence explanation of what the app does. The developer settings in the sidebar show the defaults; `temperature` and `top_p` are
+disabled because the allowed models do not support them.
+
+![SETUP: inputs, privacy notice and developer settings](docs/screenshots/1_setup.png)
+
+**2 — BRIEF.** The preparation brief from the analysis call: role summary, strengths, and the gaps
+with their severity and the job requirement each relates to. The sidebar shows the tokens and the
+cost of the analysis call.
+
+![BRIEF: role summary, strengths and gaps](docs/screenshots/2_brief.png)
+
+**3 — INTERVIEW.** The mock interview as a chat. After the answer to a gap question, the
+interviewer asks a follow-up that picks up a concrete claim from the answer (here the "99.99 %
+availability"). The settings are locked for the rest of the run, and the session total keeps
+counting.
+
+![INTERVIEW: answer to a gap question and the streamed follow-up](docs/screenshots/3_interview.png)
+
+**4 — REPORT.** A note that the scores are AI feedback, the overall score, the gaps next to the
+scores of the questions that targeted them ("not asked" for gaps no question targeted),
+and per question the answers and the evaluation; the caption names the variant and the model.
+
+![REPORT: overall score and gap scores](docs/screenshots/4_report.png)
 
 ## Setup
 
@@ -85,7 +109,7 @@ uv run pytest                                      # whole suite
 uv run pytest tests/test_guards.py::test_name -v   # a single test
 ```
 
-Current result: **51 passed**, none skipped. Besides the unit tests, `tests/test_app_flow.py`
+Current result: **53 passed**, none skipped. Besides the unit tests, `tests/test_app_flow.py`
 runs the whole app headless with Streamlit's `AppTest`: it clicks through
 `SETUP → BRIEF → INTERVIEW → REPORT` and checks that every stored evaluation carries the
 `RunConfig` frozen at the start of the interview. All tests are deterministic and mock every LLM
@@ -216,7 +240,7 @@ read as the follow-up answer before the turn is evaluated and appended to the re
 | `prompts/` | All prompt text as Markdown: `analysis.md`, `interviewer.md`, `classifier.md`, `evaluation/p1_zero_shot.md` … `p5_self_refinement.md`, plus `evaluation/p4_generated_knowledge_step1.md` for the first call of P4 |
 | `data/samples/` | Fictional JD and CV |
 | `eval/` | `dataset.json` with the reference answers, the `run_eval.py` harness, `results.csv` (evaluation run) and `effort_minimal.csv` / `effort_medium.csv` (settings experiment) |
-| `docs/` | `security_tests.md` |
+| `docs/` | `security_tests.md` and `security_tests.xlsx`, `chatgpt_critique.md`, `screenshots/` |
 | `tests/` | `test_guards.py`, `test_interview.py`, `test_pricing.py`, `test_usage_total.py`, `test_debug_log.py`, `test_run_config.py`, `test_app_flow.py` (whole app via `AppTest`) |
 
 The dependency direction is one-way: `app.py` → `interview` / `evaluation` / `guards` →
@@ -224,8 +248,6 @@ The dependency direction is one-way: `app.py` → `interview` / `evaluation` / `
 supported parameters from `pricing` for the sidebar. Below `app.py`, `st.session_state` is touched
 in one place only: `llm_client.record_usage` adds every call to the session total, so that no
 caller has to pass token counts up to the UI.
-
-`docs/security_tests.xlsx` does not exist yet.
 
 ### The LLM calls
 
@@ -265,7 +287,63 @@ such as "system" or "prompt"; each pattern family has a test case in `tests/test
 
 ## Design decisions
 
-TBD — the five most important design choices and the reasoning behind each.
+Each decision with what it means, why it was made, the alternative that was rejected, and what it
+costs.
+
+**1 — Questions target the gaps, not the role in general.**
+*What:* the main questions are generated from an analysis of where this CV falls short of this job
+description. *Why:* questions derived from the concrete gaps are far more relevant to the user than
+generic questions the model could produce from its general knowledge of a role — those can be found
+in any list on the web. *Alternative:* a simple quiz generator that asks typical questions for a job
+title. *Cost:* one extra structured LLM call before the interview; the quality of the whole
+interview depends on that analysis, since a wrongly identified gap leads to an irrelevant question;
+and the question order has to be checked in Python (`interview._validate_plan`), because a JSON
+schema cannot express it.
+
+**2 — Scores are shown in the report, not after each answer.**
+*What:* every main question is evaluated right after it is answered, but the result stays hidden
+until the report. *Why:* the user's answers should not be influenced by the scores of earlier ones —
+a real recruiter keeps the assessment to themselves as well. *Alternative:* show each score
+immediately. That would give an instant learning effect, but the user would adapt their behaviour
+during the interview, and the run would no longer resemble a real interview. *Cost:* the user waits
+for each evaluation (about 9 seconds with P1) without seeing its result, and learns only at the
+end. Immediate feedback is kept as an idea for a separate practice mode (see *Ideas for
+improvement*).
+
+**3 — The settings are frozen when the interview starts.**
+*What:* at `BRIEF → INTERVIEW`, model, reasoning effort, max tokens and evaluation variant are
+copied into an immutable `RunConfig`; the sidebar is locked until *Start over*. *Why:* the main
+questions, follow-ups and evaluations of one interview are then produced under the same conditions,
+and each stored result carries the configuration it came from, so partial and overall results can
+be interpreted together. *Alternative:* settings changeable at any point. Then the scores of one
+report could come from different models or prompt variants and could hardly be compared.
+*Cost:* changing a setting means starting over, including a new analysis; and the freeze needs
+extra code and an end-to-end test (`tests/test_app_flow.py`). The analysis itself runs before the
+freeze with the settings current at that moment.
+
+**4 — Four security layers instead of one.**
+*What:* length checks (L1), regex heuristics (L2), an LLM classifier (L3) and prompt hardening with
+delimiters (L4) make injection and manipulation attempts harder. *Why:* attacks come in different
+forms, and since it is unknown which one will be used, the app should defend against as many as
+possible; no single layer is reliable on its own. L1 and L2 catch many attacks without any LLM
+call, which saves cost and time. *Alternative:* fewer layers, e.g. letting one LLM check
+everything — more expensive and probably less secure, because an LLM checker can itself be
+misled. *Cost:* the L3 call adds a fraction of a cent and a short wait to every analysis; the L2
+patterns can reject a legitimate text and must be kept in sync with every delimiter tag the prompts
+use (test S14); and the guard needs its own tests. Even four layers are mitigation, not a guarantee
+(see *Known limitations*).
+
+**5 — Token and cost totals are collected centrally in `llm_client`.**
+*What:* one function, `llm_client.record_usage`, adds the tokens and cost of every LLM call of the
+session to a running total. *Why:* every LLM call goes through `llm_client`, and that is the only
+place where the token usage is available — for the streamed follow-up it arrives in the last chunk
+of the stream, inside `stream_text`. Recording it there means no call can be forgotten and no
+caller has to pass token counts up to the UI. *Alternative:* sum up in `app.py`, where all calls
+are triggered. Every call site would then have to receive and forward the usage, including the
+streamed one, and a new call could easily be missed. *Cost:* `record_usage` writes to
+`st.session_state`, so `llm_client` depends on Streamlit — a deliberate, documented exception to
+the rule that only `app.py` touches the session state. A different frontend would have to replace
+this one function.
 
 ## Prompt comparison results
 
@@ -370,16 +448,79 @@ A temperature comparison is not possible, because none of the three allowed mode
 
 ## Security tests summary
 
-TBD — a summary of the at least ten adversarial test cases from
-[`docs/security_tests.md`](docs/security_tests.md), which currently contains no cases.
+Fourteen adversarial test cases were run manually in the app; input, expected and actual
+behaviour are listed in [`docs/security_tests.md`](docs/security_tests.md) and
+[`docs/security_tests.xlsx`](docs/security_tests.xlsx). All 14 behaved as expected, and every layer
+caught at least one attack:
+
+| Layer | Cases | What it caught |
+|---|---|---|
+| L1 length checks | S01–S03 | Over-long JD and answers, empty answers — before any LLM call |
+| L2 regex heuristics | S04–S07, S14 | Instruction overrides, role and delimiter tags, a request for the system prompt; no false positive on a CV that legitimately mentions system prompts (S13) |
+| L3 classifier | S08–S10 | A recipe as job description, a JD in the CV field, and an instruction phrased to slip past the L2 patterns |
+| L4 prompt hardening | S11–S12 | An instruction hidden in an answer that passed L2 was ignored by the evaluation (score 2); an off-topic answer scored 1 |
+
+The request for the system prompt (S07) is blocked by L2 already, which is stricter than the spec's
+"treat it as off-topic" (FR-14 AC4); the prompt is never shown either way. S14 came out of the ChatGPT critique: the delimiter tags
+added for the L3 classifier and the two-call variants were missing from the L2 pattern, so a CV
+containing `</text_b>` passed L2 until the pattern was extended.
 
 ## ChatGPT critique
 
-TBD — the critique of this project by ChatGPT and what was changed because of it.
+ChatGPT was given this README, the P1 evaluation prompt and the interviewer prompt and asked for at
+most five points each on usability, security and prompt engineering. Its full answer is in
+[`docs/chatgpt_critique.md`](docs/chatgpt_critique.md). ChatGPT saw neither the code nor the tests,
+so every point was checked against the implementation before deciding. Changes to the evaluation
+prompts were ruled out one day before the feature freeze, because each would invalidate the
+evaluation run.
+
+**Changed**
+
+| Point | Change |
+|---|---|
+| Security 3 — delimiter injection | The claim that delimiters can be escaped was wrong for the original tags (L2 blocks them, test S06), but it led to a real gap: the tags added later for the L3 classifier and the two-call variants (`text_a`, `text_b`, `reference`, `draft_evaluation`) were missing from the L2 pattern. They are now covered, with two new unit tests and security test S14. |
+| Usability 1 — flow not explained | One sentence on the input page about what the app does, help tooltips on both input fields, and one sentence under the preparation brief. |
+| Usability 4 — invisible scoring | Light version only: a hint during the interview that a follow-up asks for more detail and does not mean the answer was bad. Showing scores during the interview would change the design (see *Design decisions*). |
+| Usability 5 — scores look objective | The report now states that the scores are AI-generated feedback and the improvements are suggestions. |
+
+**Not changed, with reason**
+
+| Point | Reason |
+|---|---|
+| Usability 2 — hide the developer sidebar | The separate sidebar *is* the separation of developer settings from the user experience that the optional task asks for; the main page works without opening it. |
+| Usability 3 — friendlier injection message | The wording is prescribed verbatim by the spec (FR-14 AC1). |
+| Security 4 — interviewer not guarded | Incorrect: every answer, follow-up answers included, passes L1 and L2 before it reaches the interviewer call. |
+| Security 2 — L3 fails open | Deliberate: L3 is a *Should*, L1, L2 and L4 stay active when it fails, and availability is preferred over a fourth layer. |
+| Security 1 — novel semantic injections | Correct in principle; no fixed pattern list can catch everything. Listed under *Known limitations* and *Ideas for improvement*. |
+| Security 5, Prompt 2, Prompt 4 — A7 and A3 label/rule mismatch | Already identified in the evaluation (see *Prompt comparison results*); fixing it changes the evaluation prompts and requires a new evaluation run. |
+| Prompt 1 — one rubric for all question types; Prompt 3 — polished improved answer | Valid, but larger changes to the evaluation prompts; listed under *Ideas for improvement*. |
+| Prompt 5 — benchmark too small | Agreed; already stated under *Known limitations*. |
+| Interviewer — "compensate the gap" after a strong answer | Valid and outside the evaluation, but changing the follow-up strategy the day before the freeze would require testing the interview flow again; listed under *Ideas for improvement*. |
 
 ## Known limitations
 
-Limits of the prompt evaluation (draft — to be reviewed by the author):
+**Limits of the app**
+
+- **The scores are an AI's judgement.** They come from one LLM call per answer against one rubric
+  for all question types; the same answer can receive a different score in another run, and the
+  improved example answer can sound more polished than the user's real evidence. The report says so.
+- **Fixed interview flow.** Exactly one follow-up after each `gap` question, none after `opener`
+  and `reverse`. The interviewer may ask how to close a gap even when the answer already closed it.
+- **Waiting time.** The evaluation runs after every main question while the user waits, about
+  9 seconds with P1 at reasoning effort `low`.
+- **Input and language.** Text has to be pasted (no PDF upload); interview, UI and feedback are
+  English only.
+- **Nothing is kept.** Reloading the page or *Start over* deletes everything; there is no report
+  download and no history. This is also the privacy design (FR-15).
+- **Security is mitigation, not a guarantee.** The L2 patterns catch known phrasings only;
+  paraphrased, multilingual or encoded instructions can pass L2. L3 is itself an LLM, can be wrong
+  and fails open; L4 instructs the model to ignore embedded instructions but cannot force it to.
+- **Cost display depends on OpenRouter.** Prices are read from the models endpoint; if it cannot
+  be reached, the sidebar shows "Cost: unavailable".
+- **Local use only.** The app runs locally for one user; there is no deployment, authentication or
+  rate limiting.
+
+**Limits of the prompt evaluation**
 
 - **Small dataset.** 8 reference answers to 3 questions. With 16 evaluations per variant, one
   deviating score moves band accuracy by about 6 percentage points, so the differences between
@@ -389,18 +530,92 @@ Limits of the prompt evaluation (draft — to be reviewed by the author):
 - **Labels and rules differ in two places.** The injection answer A7 is labelled 1, while the
   rules cap such answers at "at most 2"; every variant scored it 2. An answer without a result is
   labelled 3, while the rules allow "at most 4"; this is where A3 flips between 3 and 4.
-- **A2's label is debatable.** Several variants scored A2 a 5 instead of the expected 4.
-
-TODO — what the app itself does not do, and where its output can be wrong.
+- **A2's label is debatable.** P2 and P5 (and P1 at effort `medium`) each scored A2 a 5
+  once instead of the expected 4.
 
 ## Ideas for improvement
 
-TBD — the features dropped by the cut rule of PRODUCT_SPEC §11 and what a next version would add.
+No feature had to be dropped under the cut rule (PRODUCT_SPEC §11); the ideas below come from the
+non-goals of §2.2, the evaluation and the ChatGPT critique.
+
+**For the user**
+
+- **Second round with the same questions.** After the report, the user starts another run with the
+  same main questions, answers with the improvements in mind and sees both scores side by side. This
+  turns the one-off check into a training loop.
+- **Practice mode.** Optional feedback right after each answer instead of only at the end (see
+  design decision 2).
+- **More languages.** German first: prompts, UI strings and the reference answers of the
+  evaluation would all need a second language version, and the evaluation would have to be re-run
+  for it.
+- **PDF upload and report download**, both excluded from Sprint 1.
+
+**For prompts and evaluation**
+
+- **One rubric per question type** (behavioural, technical, opener, reverse) instead of one scale
+  for all; a technical answer would be judged on correctness and reasoning rather than on a
+  measurable business result.
+- **Improved answer as a structure with gaps marked** (e.g. "[add the metric]") where evidence is
+  missing, instead of a polished first-person answer.
+- **Follow-up strategy with three states**: insufficient evidence → probe; adequate evidence → move
+  on; gap convincingly addressed → ask a deeper job-related question.
+- **Align labels and rules** for A7 (injection) and A3 (missing result), then run the evaluation
+  again.
+- **A larger dataset** with several labelers, more question types and a held-out test set, so that
+  prompt tuning does not leak into the evaluation.
+- **A control run with a minimal shared ruleset**, to measure how much of P1's result comes from the
+  rules rather than from the technique.
+
+**For security and operation**
+
+- **More adversarial tests**: paraphrased, multilingual, Unicode-obfuscated and encoded
+  instructions.
+- **Make the L3 failure visible**: at least tell the user that the classifier was unavailable, or
+  offer a fail-closed setting.
+- **Local models, e.g. via Ollama.** Ollama offers an OpenAI-compatible endpoint, so `llm_client`
+  would mainly need a configurable base URL; CV and answers would then never leave the user's
+  machine. Local models are outside the models allowed for Sprint 1, and structured output and
+  answer quality would have to be checked and the evaluation re-run.
 
 ## Traceability table
 
-TBD — the task requirements and review criteria of PRODUCT_SPEC §10.1 and the optional tasks of
-§10.2, each mapped onto the implementation.
+Task requirements and review criteria (PRODUCT_SPEC §10.1):
+
+| Requirement / criterion | Where it is met |
+|---|---|
+| Req 1 — research interview preparation | *Research and product idea*: gap focus, phase model of a structured interview, STAR |
+| Req 2 — front-end | Streamlit: chat elements, sidebar, `st.write_stream` (`app.py`) |
+| Req 3 — OpenRouter API key | Read from the environment or `.env`, never in the repository or the UI (*Setup*, FR-15) |
+| Req 4 — allowed model | `openai/gpt-5-mini` default; selector limited to the three allowed models (FR-11) |
+| Req 5 — ≥ 5 system prompts, find the best | `prompts/evaluation/p1…p5`, `eval/run_eval.py`, *Prompt comparison results* |
+| Req 6 — ≥ 1 security guard | L1–L4 in `guards.py` and the prompts; *Security tests summary* |
+| Prompting techniques explained | *Prompt comparison results* (why P1 won, weaknesses of P2–P5) |
+| LLM settings and their effect | Sidebar (FR-11); *Settings experiment*; `max_tokens` and reasoning tokens (*The LLM calls*) |
+| System / user / assistant roles | *The LLM calls*: the interviewer is the multi-turn call with alternating roles |
+| Different output types | Streamed free text (follow-up) and schema-validated JSON (`InterviewPlan`, `AnswerEvaluation`, `GuardVerdict`) |
+| Project works as intended | *Screenshots*; `tests/test_app_flow.py` runs the whole flow |
+| Correct OpenRouter API calls | `llm_client.py` (OpenAI SDK, reasoning effort via `extra_body`, usage incl. streaming) |
+| Justify prompt and parameter choices | *Design decisions*, *Prompt comparison results*, *Settings experiment* |
+| Potential problems | *Known limitations*; `docs/security_tests.md` / `.xlsx` |
+| Suggestions for improvement | *Ideas for improvement* |
+
+Optional tasks claimed (PRODUCT_SPEC §10.2):
+
+| Task | Where it is met | Status |
+|---|---|---|
+| Easy 1 — ChatGPT critique | *ChatGPT critique*, `docs/chatgpt_critique.md` | done |
+| Easy 8 — tune a setting and compare | *Settings experiment* (reasoning effort) | done |
+| Medium 1 — all model settings as controls | Model, reasoning effort, max tokens; `temperature` and `top_p` shown but disabled | partly — the allowed models do not support sampling parameters |
+| Medium 2 — two structured JSON formats | `InterviewPlan` and `AnswerEvaluation` (plus `GuardVerdict`) in `schemas.py` | done |
+| Medium 3 — price of the prompt | Session token and cost total in the sidebar; cost per evaluation in `run_eval.py` | done |
+| Medium 5 — jailbreak results in Excel | `docs/security_tests.xlsx` (14 cases) | done |
+| Medium 6 — separate job description field | JD field next to the CV; the JD is passed to the model as context, no retrieval | done, without retrieval — the task labels it "(RAG)" |
+| Medium 9 — developer settings separated from UX | Sidebar, locked during the interview (FR-10) | done |
+| Hard 1 — full chatbot | Multi-turn interviewer with the whole conversation as history (FR-07) | done |
+| Hard 5 — assess prompt performance | `eval/`, *Prompt comparison results* | done |
+
+Not claimed: Medium 7 — the model selector offers only the three allowed OpenAI models, not a
+choice between providers.
 
 ## Note on tooling
 
@@ -413,7 +628,8 @@ It was planned and built with AI assistance, with a clear split of responsibilit
   `PRODUCT_SPEC.md`, turned the author's source material into the fictional sample JD and CV,
   broke the project plan down into daily task lists, proposed code and prompt snippets, and
   reviewed the author's code and prompts throughout. It also drafted the factual parts of the
-  evaluation sections in this README (tables and deviation lists).
+  evaluation sections in this README (tables and deviation lists) and wrote the design decisions,
+  known limitations, ideas for improvement and traceability table from the author's notes.
 - **Gemini** – generated the candidate answers used as few-shot examples in P2 (fictional, outside
   the evaluation dataset); their evaluations were written by the author.
 - **Claude Code CLI** – generated the initial scaffolding (folder structure, function stubs and

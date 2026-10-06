@@ -251,9 +251,15 @@ def render_setup() -> None:
     (FR-14 AC1, AC2).
     """
     st.info(PRIVACY_NOTICE)
+    st.caption(
+        "Paste the job ad you are applying for and your CV. The app finds the points an "
+        "interviewer is likely to probe - your gaps - and runs a short mock interview on them."
+    )
     st.button("Load sample data", on_click=load_sample_data)
-    jd = st.text_area("Job description", key="jd", height=250)
-    cv = st.text_area("Your CV", key="cv", height=250)
+    jd = st.text_area(
+        "Job description", key="jd", height=250, help="The full job advertisement, as plain text."
+    )
+    cv = st.text_area("Your CV", key="cv", height=250, help="Your CV, as plain text.")
     st.slider("Number of questions", MIN_QUESTIONS, MAX_QUESTIONS, key="n_questions")
     too_short = len(jd.strip()) < MIN_INPUT_CHARS or len(cv.strip()) < MIN_INPUT_CHARS
     if st.button("Analyse", type="primary", disabled=too_short):
@@ -270,6 +276,10 @@ def render_brief() -> None:
     """
     plan = st.session_state["plan"]
     st.subheader("Your preparation brief")
+    st.caption(
+        "What speaks for you, and the gaps an interviewer will most likely ask about. "
+        "The interview questions focus on these gaps."
+    )
     st.write(plan.role_summary)
     st.markdown("**Strengths**")
     for strength in plan.strengths:
@@ -300,7 +310,10 @@ def render_interview() -> None:
     question = plan.questions[q_index]
 
     st.progress(q_index / len(plan.questions), text=f"Question {q_index + 1} of {len(plan.questions)}")
-    st.caption("Feedback will be shown at the end.")
+    st.caption(
+        "Feedback will be shown at the end. A follow-up question asks for more detail; "
+        "it does not mean your answer was bad."
+    )
     st.button(
         "Finish interview",
         on_click=go_to,
@@ -406,6 +419,10 @@ def render_report() -> None:
     results = st.session_state["results"]
     scored = [result.evaluation for result in results if result.evaluation is not None]
     st.subheader("Your interview report")
+    st.caption(
+        "This is AI-generated feedback, not a recruiter's verdict: the scores are a language "
+        "model's estimate, and the improvements and example answers are suggestions."
+    )
     if scored:
         st.metric("Overall score", f"{aggregate_scores(scored):.1f} / 5")
         run_config = results[0].run_config

@@ -30,7 +30,7 @@ The project is **uv-only**. Never invoke bare `pip` or `python`.
 uv sync                               # install/lock deps (build backend: uv_build, src layout)
 uv add <pkg>                          # add a dependency
 uv run streamlit run app.py           # run the app
-uv run pytest                         # tests (NFR-06) — currently 51 pass, none skipped
+uv run pytest                         # tests (NFR-06) — currently 53 pass, none skipped
 uv run pytest tests/test_guards.py::test_name -v   # single test
 uv run python eval/run_eval.py        # full evaluation run (§7.2): 5 variants x 8 answers x 2 runs -> eval/results.csv
 uv run python eval/run_eval.py --variants p1_zero_shot p3_chain_of_thought --runs 2
@@ -62,7 +62,7 @@ prompts/{analysis,interviewer,classifier}.md
 prompts/evaluation/p1_zero_shot.md … p5_self_refinement.md, p4_generated_knowledge_step1.md (P4 call 1)
 data/samples/                          # fictional JD + CV
 eval/{dataset.json,run_eval.py}        # results.csv (main run), effort_minimal/medium.csv (§7.3)
-docs/security_tests.md                 # security_tests.xlsx still to be produced
+docs/                                  # security_tests.md/.xlsx, chatgpt_critique.md, screenshots/
 tests/
 ```
 
@@ -186,12 +186,10 @@ log (`DEBUG_LOG=1`) is in `llm_client`. The L3 classifier (`guards.classify_inpu
 `tests/test_app_flow.py` drives the whole app through `streamlit.testing.v1.AppTest` with every
 LLM call mocked.
 
-No code stub is left (`NotImplementedError` no longer occurs). Still open:
-
-- `docs/security_tests.md` has no rows and `docs/security_tests.xlsx` does not exist (FR-14 AC5).
-- `README.md`: the evaluation results and the settings experiment are written; screenshots,
-  design decisions, security test summary, ChatGPT critique, parts of the known limitations,
-  ideas for improvement and the traceability table are still TBD.
+No code stub is left (`NotImplementedError` no longer occurs). The 14 security test cases are in
+`docs/security_tests.md` and `.xlsx`, all as expected. The ChatGPT critique led to the extended L2
+delimiter pattern (S14) and three UX captions (setup, follow-up hint, AI-feedback note in the
+report). All README sections listed in §10.2 are written.
 
 ## Conventions
 
@@ -212,5 +210,5 @@ dropped, marked as not implemented, and listed under "Ideas for improvement" in 
 §7 (prompt evaluation) and FR-07 (adaptive follow-up), which are never cut. Hard deadline is
 Mon 2026-10-12; no new features after the freeze.
 
-`README.md` contains all sections listed in §10.2 (NFR-07); see *Current state* for the ones that
-are still TBD. The README must always match the actual state of the code.
+`README.md` contains all sections listed in §10.2 (NFR-07). The README must always match the
+actual state of the code.
