@@ -82,6 +82,8 @@ Requires Python 3.13, [uv](https://docs.astral.sh/uv/) and an OpenRouter API key
 uv-only; bare `pip` or `python` are not used.
 
 ```bash
+git clone https://github.com/ijaeg/job-interview-coaching-app.git
+cd job-interview-coaching-app
 uv sync                                 # install dependencies from uv.lock
 cp .env.example .env                    # then set OPENROUTER_API_KEY=... in .env
 uv run streamlit run app.py             # start the app
